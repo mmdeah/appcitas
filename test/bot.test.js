@@ -283,4 +283,24 @@ test('si algo falla, Kommo igual recibe respuesta y pasa al asesor', async () =>
     console.warn = avisoOriginal;
   }
   assert.deepEqual(enviados.map((e) => [e.data.estado, e.data.motivo]), [['asesor', 'error'], ['asesor', 'sin_lead']]);
+  // Kommo no acepta respuestas sin instrucciones: va la etiqueta, que el cliente no ve.
+  for (const e of enviados) assert.equal(e.execute_handlers[0].params.name, 'set_tag');
+});
+
+test('cuando Kommo reenvía el mensaje inicial, responde sin escribirle al cliente', async () => {
+  const enviados = [];
+  const kommo = { contactoDelLead: async () => ({}), continuar: async (u, c) => enviados.push(c), nota: async () => {} };
+  const atender = crearAtencion({ bot, conversaciones: crearConversaciones(db), kommo });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await atender({ data: { lead: '8', inicio: 'si', mensaje: 'prueba agenda' }, return_url: 'x' });
+    await atender({ data: { lead: '8', inicio: 'no', mensaje: 'prueba agenda' }, return_url: 'x' });
+  } finally {
+    console.log = log;
+  }
+  assert.equal(enviados[1].data.estado, 'esperar');
+  assert.deepEqual(enviados[1].execute_handlers, [
+    { handler: 'action', params: { name: 'set_tag', params: { type: 2, value: 'agenda-bot' } } },
+  ]);
 });

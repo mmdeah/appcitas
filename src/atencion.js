@@ -4,6 +4,8 @@
 const config = require('../config');
 const { fechaLarga, horaCorta } = require('./fechas');
 
+const ETIQUETA_SILENCIOSA = { handler: 'action', params: { name: 'set_tag', params: { type: 2, value: 'agenda-bot' } } };
+
 function crearAtencion({ bot, conversaciones, kommo }) {
   return async function atender({ data = {}, return_url: direccion }) {
     const lead = String(data.lead || '').replace(/\D/g, '');
@@ -35,7 +37,10 @@ function crearAtencion({ bot, conversaciones, kommo }) {
       else conversaciones.borrar(lead);
     }
 
-    await kommo.continuar(direccion, { data: r.data, execute_handlers: r.handlers });
+    // Kommo rechaza una respuesta sin instrucciones; si no hay nada que mostrarle al cliente,
+    // se manda una que él no ve: la etiqueta "agenda-bot" en el lead.
+    const handlers = r.handlers.length ? r.handlers : [ETIQUETA_SILENCIOSA];
+    await kommo.continuar(direccion, { data: r.data, execute_handlers: handlers });
     console.log('Kommo: respuesta enviada al bot', { lead, estado: r.data.estado, mensajes: r.handlers.length });
 
     if (r.cita) {
