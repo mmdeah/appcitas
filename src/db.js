@@ -42,7 +42,19 @@ function abrir(archivo = ARCHIVO) {
       creado TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS bloqueos_por_fecha ON bloqueos (fecha);
+
+    -- En qué paso va cada cliente que está agendando por el bot de Kommo.
+    CREATE TABLE IF NOT EXISTS conversaciones (
+      lead TEXT PRIMARY KEY,                   -- ID del lead en Kommo
+      datos TEXT NOT NULL,                     -- JSON con el paso y lo que ya respondió
+      actualizada TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
+
+  // Columnas agregadas después de la primera versión.
+  const columnas = db.prepare('PRAGMA table_info(citas)').all().map((c) => c.name);
+  if (!columnas.includes('kommo_lead')) db.exec('ALTER TABLE citas ADD COLUMN kommo_lead TEXT');
+
   return db;
 }
 

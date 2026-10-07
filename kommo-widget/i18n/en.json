@@ -1,0 +1,15 @@
+{
+  "widget": {
+    "name": "Workshop schedule",
+    "short_description": "Books appointments from the WhatsApp bot.",
+    "description": "Checks free times in the workshop schedule and books the appointment without the customer leaving WhatsApp.",
+    "tour_description": "Adds the Book appointment step to the Salesbot."
+  },
+  "settings": {
+    "url_agenda": "Schedule address (leave empty to use appcitas.up.railway.app)"
+  },
+  "salesbot": {
+    "agenda": "Book appointment",
+    "servicio": "Service: REVISION or SINCRONIZACION"
+  }
+}

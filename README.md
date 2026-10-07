@@ -34,6 +34,24 @@ Solo usa Node.js (22.13 o superior). No hay que instalar librerías: el servidor
 
 Railway arranca la app con `npm start` y revisa que responda en `/salud` (ver `railway.json`).
 
+## Agendar desde el bot de Kommo
+
+La app recibe las consultas del Salesbot en `/kommo/bot` y le responde a Kommo por su API.
+
+1. Arma el widget con `npm run widget`. Queda en `dist/agenda-del-taller-widget.zip`.
+2. En Kommo (**Ajustes → Integraciones**), crea la integración privada:
+   - **URL de redirección:** `https://appcitas.up.railway.app/kommo`
+   - **Archivo del widget:** sube el `.zip`.
+3. En la pestaña **Llaves y alcances** copia la clave secreta y genera un token de larga duración. En Railway ponlos como `KOMMO_SECRET` y `KOMMO_TOKEN`.
+4. Instala el widget. La dirección de la agenda puede quedar vacía.
+5. En el Salesbot aparece el paso **Agenda del taller → Agendar cita**:
+   - En **Servicio** escribe `REVISION` o `SINCRONIZACION`.
+   - Tiene dos salidas: **Cita agendada** y **Pasar a asesor**.
+
+La conversación es: día → hora → nombre → vehículo y placa → (celular, si Kommo no lo tiene) → cita guardada. Además, la app deja una nota en el lead.
+
+Si algo falla, en los logs de Railway aparece una línea que empieza con `Kommo:`.
+
 ## Copia de seguridad
 
 Al final del calendario está el enlace **Descargar copia de todas las citas (JSON)**. Descárgala de vez en cuando.
@@ -45,7 +63,10 @@ Todo está en `config.js`: horas de citas por día, cuántos vehículos por hora
 ## Archivos
 
 - `config.js`: datos del taller.
-- `src/agenda.js`: motor de citas (horas libres, reservar sin cruces, cancelar, bloquear). El bot lo usará tal cual.
+- `src/agenda.js`: motor de citas (horas libres, reservar sin cruces, cancelar, bloquear).
+- `src/bot.js`: la conversación de agendamiento por WhatsApp.
+- `src/kommo.js` y `src/atencion.js`: conexión con el Salesbot de Kommo.
+- `kommo-widget/`: el widget que se sube a Kommo (`npm run widget` lo empaqueta).
 - `src/festivos.js`: festivos de Colombia.
 - `src/server.js`: servidor web y rutas.
 - `src/vistas.js`: páginas HTML.
@@ -53,6 +74,5 @@ Todo está en `config.js`: horas de citas por día, cuántos vehículos por hora
 
 ## Siguientes etapas
 
-1. Bot de WhatsApp con un número de prueba de Meta: responde anuncios y agenda usando `src/agenda.js`.
-2. Recordatorio el día anterior con plantilla aprobada (Confirmo / Reprogramar / Cancelar).
-3. Conectar el número real con coexistencia y apagar el bot de Kommo.
+1. Recordatorio el día anterior desde Kommo, con plantilla aprobada (Confirmo / Reprogramar / Cancelar).
+2. Cuando terminen los 6 meses de Kommo, evaluar la API oficial de WhatsApp con un proveedor. El motor de citas sirve igual.

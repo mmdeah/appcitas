@@ -237,6 +237,7 @@ ${error ? `<p class="alerta mal">${esc(error)}</p>` : ''}
     ${fila('Placa', c.placa ? `<span class="placa">${esc(placaBonita(c.placa))}</span>` : '')}
     ${fila('Notas', esc(c.notas))}
     ${fila('Agendada por', c.origen === 'BOT' ? 'El bot de WhatsApp' : 'A mano')}
+    ${fila('Kommo', c.kommo_lead ? `<a href="https://${config.kommo.subdominio}.kommo.com/leads/detail/${esc(c.kommo_lead)}" target="_blank" rel="noopener">Ver lead #${esc(c.kommo_lead)}</a>` : '')}
   </dl>
   <div class="tarjeta acciones-cita">
     <h2>Cambiar estado</h2>

@@ -7,18 +7,30 @@ const crypto = require('node:crypto');
 const { abrir } = require('./db');
 const { crearAgenda, ErrorAgenda, ESTADOS } = require('./agenda');
 const { ahora, esFecha, lunesDe } = require('./fechas');
+const { crearConversaciones } = require('./conversaciones');
+const { crearBot } = require('./bot');
+const { crearKommo, leerCuerpo } = require('./kommo');
+const { crearAtencion } = require('./atencion');
 const vistas = require('./vistas');
 
 const CLAVE = process.env.ADMIN_PASSWORD;
 const SECRETO = process.env.SESSION_SECRET;
 if (!CLAVE || !SECRETO) {
-  console.error('Faltan ADMIN_PASSWORD o SESSION_SECRET. Copia .env.example como .env y complétalo.');
+  console.error(
+    'Faltan las variables ADMIN_PASSWORD y/o SESSION_SECRET. En tu computador van en .env; en Railway, en la pestaña Variables del servicio.'
+  );
   process.exit(1);
 }
 const COOKIE_SEGURA = process.env.COOKIE_SECURE === 'true';
 const DURACION_SESION = 30 * 24 * 60 * 60; // 30 días, en segundos
 
-const agenda = crearAgenda(abrir(process.env.DB_PATH || undefined));
+const db = abrir(process.env.DB_PATH || undefined);
+const agenda = crearAgenda(db);
+const conversaciones = crearConversaciones(db);
+const bot = crearBot(agenda);
+const kommo = crearKommo();
+const atenderBot = crearAtencion({ bot, conversaciones, kommo });
+if (!kommo.activo) console.log('Kommo sin configurar: faltan KOMMO_SECRET y/o KOMMO_TOKEN. El bot no agendará.');
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'));
 
 const CABECERAS = {
@@ -68,24 +80,33 @@ function demasiadosIntentos(ip) {
 const ipDe = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress).split(',')[0].trim();
 
 // ---------- Utilidades HTTP ----------
-function leerFormulario(req) {
+function leerTexto(req) {
   return new Promise((resolve, reject) => {
     let cuerpo = '';
+    req.setEncoding('utf8');
     req.on('data', (parte) => {
       cuerpo += parte;
       if (cuerpo.length > 20000) {
-        reject(new Error('Formulario demasiado grande'));
+        reject(new Error('Cuerpo demasiado grande'));
         req.destroy();
       }
     });
-    req.on('end', () => resolve(Object.fromEntries(new URLSearchParams(cuerpo))));
+    req.on('end', () => resolve(cuerpo));
     req.on('error', reject);
   });
 }
 
+const leerFormulario = async (req) => Object.fromEntries(new URLSearchParams(await leerTexto(req)));
+
+
 function html(res, estado, contenido, extra = {}) {
   res.writeHead(estado, { 'Content-Type': 'text/html; charset=utf-8', ...CABECERAS, ...extra });
   res.end(contenido);
+}
+
+function json(res, estado, datos) {
+  res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(datos));
 }
 
 function ir(res, destino, extra = {}) {
@@ -110,6 +131,25 @@ async function atender(req, res) {
   if (metodo === 'GET' && ruta === '/app.css') {
     res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
     return res.end(CSS);
+  }
+
+  if (metodo === 'POST' && ruta === '/kommo/bot') {
+    if (!kommo.activo) return json(res, 503, { error: 'Kommo sin configurar' });
+    let cuerpo;
+    try {
+      cuerpo = leerCuerpo(await leerTexto(req), req.headers['content-type'] || '');
+      kommo.verificar(cuerpo.token);
+    } catch (err) {
+      console.warn('Kommo: petición rechazada:', err.message);
+      return json(res, 401, { error: 'no autorizado' });
+    }
+    if (!kommo.direccionDeRetornoValida(cuerpo.return_url)) {
+      console.warn('Kommo: dirección de retorno no permitida:', String(cuerpo.return_url).slice(0, 200));
+      return json(res, 400, { error: 'return_url no permitida' });
+    }
+    json(res, 200, {});
+    atenderBot(cuerpo).catch((err) => console.error('Kommo: error atendiendo el bot:', err));
+    return;
   }
 
   if (ruta === '/login') {

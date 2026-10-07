@@ -2,7 +2,11 @@
 
 module.exports = {
   negocio: 'Automotriz Online SD',
+  direccion: 'Av. 6 Norte #18-22, B/ Granada, Cali',
   zonaHoraria: 'America/Bogota',
+
+  // Cuenta de Kommo (autoonlinesdclientes.kommo.com). Las llaves van en variables de entorno.
+  kommo: { subdominio: 'autoonlinesdclientes' },
 
   // Horas en las que puede EMPEZAR una cita, por día de la semana
   // (0 = domingo, 1 = lunes … 6 = sábado). Un día que no aparece no recibe citas.

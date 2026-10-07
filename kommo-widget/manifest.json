@@ -1,0 +1,38 @@
+{
+  "widget": {
+    "name": "widget.name",
+    "description": "widget.description",
+    "short_description": "widget.short_description",
+    "version": "1.0.0",
+    "interface_version": 2,
+    "init_once": true,
+    "locale": ["es", "en"],
+    "installation": true
+  },
+  "locations": ["salesbot_designer", "settings"],
+  "tour": {
+    "is_tour": true,
+    "tour_description": "widget.tour_description"
+  },
+  "settings": {
+    "url_agenda": {
+      "name": "settings.url_agenda",
+      "type": "text",
+      "required": false
+    }
+  },
+  "salesbot_designer": {
+    "logo": "/widgets/#WIDGET_CODE#/images/logo_min.png",
+    "agenda": {
+      "name": "salesbot.agenda",
+      "settings": {
+        "servicio": {
+          "name": "salesbot.servicio",
+          "default_value": "REVISION",
+          "type": "text",
+          "manual": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "widget": {
+    "name": "Agenda del taller",
+    "short_description": "Agenda citas desde el bot de WhatsApp.",
+    "description": "Consulta los horarios libres de la agenda del taller y guarda la cita sin que el cliente salga de WhatsApp.",
+    "tour_description": "Agrega al Salesbot el paso Agendar cita."
+  },
+  "settings": {
+    "url_agenda": "Dirección de la agenda (déjala vacía para usar appcitas.up.railway.app)"
+  },
+  "salesbot": {
+    "agenda": "Agendar cita",
+    "servicio": "Servicio: REVISION o SINCRONIZACION"
+  }
+}

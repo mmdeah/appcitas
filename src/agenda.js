@@ -28,8 +28,8 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     puestosOcupados: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND hora = ? AND estado <> 'CANCELADA'`),
     cita: db.prepare(`SELECT * FROM citas WHERE id = ?`),
     insertar: db.prepare(`
-      INSERT INTO citas (servicio, fecha, hora, puesto, cliente, telefono, vehiculo, placa, notas, origen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+      INSERT INTO citas (servicio, fecha, hora, puesto, cliente, telefono, vehiculo, placa, notas, origen, kommo_lead)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
     cambiarEstado: db.prepare(`UPDATE citas SET estado = ? WHERE id = ? RETURNING *`),
     bloqueosDelDia: db.prepare(`SELECT * FROM bloqueos WHERE fecha = ? ORDER BY hora`),
     bloquear: db.prepare(`INSERT INTO bloqueos (fecha, hora, motivo) VALUES (?, ?, ?) RETURNING *`),
@@ -141,6 +141,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
       vehiculo: textoOpcional(datos.vehiculo, 120),
       placa,
       notas: textoOpcional(datos.notas, 1000),
+      kommoLead: /^\d+$/.test(String(datos.kommoLead || '')) ? String(datos.kommoLead) : null,
     };
   }
 
@@ -164,7 +165,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
       let puesto = 1;
       while (ocupados.includes(puesto)) puesto++;
       const cita = sql.insertar.get(
-        c.servicio, c.fecha, c.hora, puesto, c.cliente, c.telefono, c.vehiculo, c.placa, c.notas, origen
+        c.servicio, c.fecha, c.hora, puesto, c.cliente, c.telefono, c.vehiculo, c.placa, c.notas, origen, c.kommoLead
       );
       db.exec('COMMIT');
       return cita;
