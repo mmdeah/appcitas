@@ -209,7 +209,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       .sort();
     const botones = [...elegidas.map(horaCorta), libres.length > elegidas.length ? OTRA_HORA : OTRO_DIA];
     return esperar(
-      { ...s, paso: 'hora', horas: libres.map((h) => h.hora) },
+      { ...s, paso: 'hora', horas: libres.map((h) => h.hora), horasSugeridas: elegidas, terceraHora: botones[2] },
       [mostrarBotones(`¿A qué hora el ${fechaLarga(s.fecha)}? Toca una opción 👇`, botones)],
       acuse || `Perfecto, el ${fechaLarga(s.fecha)} 👍`
     );
@@ -358,6 +358,14 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       }
       case 'hora': {
         if (normalizar(mensaje).startsWith(normalizar(OTRA_HORA))) return pedirHoraEscrita(avanzar(s));
+        // Respondió con el número de la opción: 1 y 2 son las horas sugeridas, 3 es "Otra hora" / "Otro día".
+        const numero = normalizar(mensaje);
+        if (/^[1-3]$/.test(numero)) {
+          if (numero === '3' || !(s.horasSugeridas || [])[Number(numero) - 1]) {
+            return s.terceraHora === OTRO_DIA ? ofrecerDias(avanzar(s), 'Claro 👍') : pedirHoraEscrita(avanzar(s));
+          }
+          return pedirNombre(avanzar({ ...s, hora: s.horasSugeridas[Number(numero) - 1] }));
+        }
         // Acepta el botón o cualquier hora libre escrita a mano ("10:30", "a las 2").
         const hora = elegirHora(mensaje, s.horas);
         if (!hora) return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈'));

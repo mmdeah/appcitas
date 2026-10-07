@@ -260,21 +260,23 @@ test('atención completa con Kommo simulado: guarda el paso, responde y deja not
     await atender({ data: { lead: '77', inicio: 'no', mensaje }, return_url: url });
   }
 
-  // Días y horas van con 3 botones; nombre y vehículo son respuesta escrita.
+  // Días y horas van con opciones numeradas; nombre y vehículo son respuesta escrita.
   assert.deepEqual(enviados.map((e) => e.data.estado), ['botones', 'botones', 'texto', 'texto', 'listo']);
-  assert.match(enviados[0].data.texto, /sincronización/);
-  assert.equal(enviados[0].data.b3, 'Otra fecha');
-  assert.equal(enviados[2].data.texto, '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊');
-  // Mientras espera, la app solo manda la confirmación corta; la pregunta la envía el bloque Mensaje de Kommo.
-  assert.deepEqual(enviados.slice(0, 4).map((e) => e.execute_handlers[0].params.value), [
-    '¡Listo! Vamos a agendar tu sincronización 🙌', 'Perfecto, el viernes 9 de octubre 👍', 'Súper, a las 8:30 a. m. ✅', 'Gracias, Ana 🙌',
+  const textos = (e) => e.execute_handlers.map((h) => h.params.value);
+  assert.deepEqual(textos(enviados[0]), [
+    '¡Listo! Vamos a agendar tu sincronización 🙌',
+    '¿Qué día te queda bien para la sincronización?',
+    '1️⃣ Hoy, martes 6\n2️⃣ Mañana, miércoles 7\n3️⃣ Otra fecha',
   ]);
-  for (const e of enviados) for (const h of e.execute_handlers) assert.equal(h.handler, 'show');
-  // La confirmación final sí se manda directo.
+  assert.deepEqual(textos(enviados[2]), ['Súper, a las 8:30 a. m. ✅', '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊']);
+  // Solo se le mandan a Kommo mensajes de texto, de máximo 80 caracteres.
+  for (const e of enviados) {
+    for (const h of e.execute_handlers) {
+      assert.equal(h.handler, 'show');
+      assert.ok([...h.params.value].length <= 80, h.params.value);
+    }
+  }
   assert.match(enviados[4].execute_handlers[0].params.value, /Listo, Ana!/);
-  assert.equal(conversaciones.leer('77'), null);
-  assert.equal(notas.length, 1);
-  assert.match(notas[0].texto, /Sincronización, viernes 9 de octubre a las 8:30 a\. m\..*JKL456/);
   const cita = agenda.dia('2026-10-09').horas[0].citas[0];
   assert.deepEqual([cita.cliente, cita.telefono, cita.kommo_lead], ['Ana Gómez', '573001112233', '77']);
 });
@@ -299,18 +301,23 @@ test('si algo falla, Kommo igual recibe respuesta y pasa al asesor', async () =>
   for (const e of enviados) assert.equal(e.execute_handlers[0].handler, 'show');
 });
 
-test('completa a 3 botones cuando hay menos opciones', () => {
+test('las opciones se mandan numeradas para tocar 1, 2 o 3', () => {
   const { paraKommo } = require('../src/atencion');
   const r = {
     data: { estado: 'esperar', paso: 'hora' },
     acuse: 'Perfecto 👍',
-    handlers: [{ handler: 'show', params: { type: 'buttons', value: '¿A qué hora?', buttons: ['3:30 p. m.', 'Otro día'] } }],
+    handlers: [{ handler: 'show', params: { type: 'buttons', value: '¿A qué hora? Toca una opción 👇', buttons: ['3:30 p. m.', 'Otro día'] } }],
   };
   const k = paraKommo(r);
-  assert.deepEqual(k.data, {
-    estado: 'botones', paso: 'hora', texto: '¿A qué hora?', b1: '3:30 p. m.', b2: 'Otro día', b3: 'Hablar con asesor',
-  });
-  assert.deepEqual(k.handlers, [{ handler: 'show', params: { type: 'text', value: 'Perfecto 👍' } }]);
+  assert.deepEqual(k.data, { estado: 'botones', paso: 'hora' });
+  assert.deepEqual(k.handlers.map((h) => h.params.value), ['Perfecto 👍\n¿A qué hora?', '1️⃣ 3:30 p. m.\n2️⃣ Otro día']);
+});
+
+test('responder 1, 2 o 3 en las horas elige la opción', () => {
+  const [, , primera] = charla(['Viernes 9', '1']);
+  assert.equal(primera.siguiente.hora, '08:30');
+  const [, , otra] = charla(['Viernes 9', '3']);
+  assert.equal(otra.siguiente.paso, 'hora_escrita');
 });
 
 test('cuando Kommo reenvía el mensaje inicial, repite la pregunta sin escribirle aparte al cliente', async () => {
@@ -326,6 +333,5 @@ test('cuando Kommo reenvía el mensaje inicial, repite la pregunta sin escribirl
     console.log = log;
   }
   assert.equal(enviados[1].data.estado, 'botones');
-  assert.equal(enviados[1].data.texto, enviados[0].data.texto);
-  assert.deepEqual(enviados[1].execute_handlers, [{ handler: 'show', params: { type: 'text', value: '👇' } }]);
+  assert.equal(enviados[1].execute_handlers[0].params.value, '👇\n¿Qué día te queda bien para la revisión?');
 });

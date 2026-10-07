@@ -6,27 +6,29 @@ const { fechaLarga, horaCorta } = require('./fechas');
 
 // Desde la app Kommo solo acepta instrucciones "show" (mostrar un mensaje), y siempre al menos una.
 const mostrar = (value) => ({ handler: 'show', params: { type: 'text', value } });
-const RELLENO_BOTONES = ['Hablar con asesor', 'Otro día'];
+const NUMEROS = ['1️⃣', '2️⃣', '3️⃣'];
+const MAX_TEXTO = 80;
 
-// Cuando hay que esperar al cliente, la app manda un mensaje corto de confirmación ("Perfecto, el jueves 8 👍")
-// y la pregunta va en los datos ({{json.texto}}, {{json.b1}}, {{json.b2}}, {{json.b3}}) para que la envíe
-// un bloque Mensaje de Kommo, que es el que sí espera la respuesta.
-// estado = "botones" (3 botones) o "texto" (respuesta escrita). Las respuestas finales se mandan directo.
+// Kommo no acepta botones armados por la app dentro de un bloque Mensaje ({{json.b1}}), así que:
+// - la app manda la confirmación, la pregunta y las opciones numeradas ("1️⃣ Jueves 8");
+// - un bloque Mensaje de Kommo con texto y botones fijos ([1] [2] [3], o "escribe tu respuesta")
+//   es el que espera al cliente. estado = "botones" o "texto" decide a cuál bloque va.
+// Las respuestas finales (cita agendada, pasar a asesor) se mandan directo.
 function paraKommo(r) {
   if (r.data.estado !== 'esperar') {
     return { data: r.data, handlers: r.handlers.length ? r.handlers : [mostrar('Un asesor te escribe en un momento 🙌')] };
   }
   const pregunta = r.handlers[r.handlers.length - 1];
-  const antes = r.handlers.slice(0, -1);
-  const datos = { ...r.data, texto: pregunta.params.value };
-  if (pregunta.params.type === 'buttons') {
-    const botones = [...pregunta.params.buttons];
-    for (const extra of RELLENO_BOTONES) if (botones.length < 3 && !botones.includes(extra)) botones.push(extra);
-    Object.assign(datos, { estado: 'botones', b1: botones[0], b2: botones[1], b3: botones[2] });
-  } else {
-    datos.estado = 'texto';
+  const antes = r.handlers.slice(0, -1).map((h) => mostrar(h.params.value));
+  const acuse = r.acuse || '👇';
+  if (pregunta.params.type !== 'buttons') {
+    return { data: { ...r.data, estado: 'texto' }, handlers: [mostrar(acuse), ...antes, mostrar(pregunta.params.value)] };
   }
-  return { data: datos, handlers: [mostrar(r.acuse || '👇'), ...antes] };
+  const texto = pregunta.params.value.replace(/\s*Toca una opción 👇$/, '');
+  const juntos = `${acuse}\n${texto}`;
+  const cabeza = [...juntos].length <= MAX_TEXTO ? [mostrar(juntos)] : [mostrar(acuse), mostrar(texto)];
+  const opciones = pregunta.params.buttons.map((b, i) => `${NUMEROS[i]} ${b}`).join('\n');
+  return { data: { ...r.data, estado: 'botones' }, handlers: [...cabeza, ...antes, mostrar(opciones)] };
 }
 
 function crearAtencion({ bot, conversaciones, kommo }) {
