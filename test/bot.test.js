@@ -2,7 +2,7 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { abrir } = require('../src/db');
 const { crearAgenda } = require('../src/agenda');
-const { crearBot, elegirDia, elegirHora, separarPlaca, limpiarNombre, MAX_TEXTO } = require('../src/bot');
+const { crearBot, elegirDia, elegirHora, etiquetaDia, separarPlaca, limpiarNombre, MAX_TEXTO } = require('../src/bot');
 const { crearConversaciones } = require('../src/conversaciones');
 const { crearAtencion } = require('../src/atencion');
 
@@ -50,18 +50,18 @@ function charla(mensajes, inicio = {}) {
 
 test('agenda una cita completa desde WhatsApp', () => {
   const [dias, horas, nombre, vehiculo, listo] = charla(
-    ['Mañana · Mié 7 oct', '10:30 a. m.', 'Me llamo Juan Pérez', 'Mazda 3 2018, abc-123'],
+    ['Mañana, miércoles 7', '10:30 a. m.', 'Me llamo Juan Pérez', 'Mazda 3 2018, abc-123'],
     { contacto: { nombre: 'Juancho', telefono: '+57 300 123 4567' } }
   );
 
   assert.equal(dias.estado, 'esperar');
-  assert.equal(dias.handlers[0].params.value, '¿Qué día te queda bien para la revisión? 👇');
+  assert.equal(dias.handlers[0].params.value, '¿Qué día te queda bien para la revisión? Toca el botón y elige un día 👇');
   assert.deepEqual(dias.handlers[0].params.buttons, [
-    'Hoy · Mar 6 oct', 'Mañana · Mié 7 oct', 'Jue 8 oct', 'Vie 9 oct', 'Sáb 10 oct', 'Mar 13 oct',
+    'Hoy, martes 6', 'Mañana, miércoles 7', 'Jueves 8', 'Viernes 9', 'Sábado 10', 'Martes 13',
   ]);
-  assert.equal(horas.handlers[0].params.value, 'Horas libres el miércoles 7 de octubre 👇');
-  assert.equal(horas.handlers[0].params.buttons.at(-1), 'Otro día');
-  assert.equal(nombre.handlers[0].params.value, '¿A nombre de quién agendo la cita?');
+  assert.equal(horas.handlers[0].params.value, 'Horas libres el miércoles 7 de octubre. Toca el botón y elige una 👇');
+  assert.equal(horas.handlers[0].params.buttons.at(-1), 'Ver otros días');
+  assert.equal(nombre.handlers[0].params.value, '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊');
   assert.match(vehiculo.handlers[0].params.value, /vehículo/);
 
   assert.equal(listo.estado, 'listo');
@@ -74,6 +74,22 @@ test('agenda una cita completa desde WhatsApp', () => {
     [cita.fecha, cita.hora, cita.cliente, cita.vehiculo, cita.placa, cita.telefono, cita.origen, cita.kommo_lead],
     ['2026-10-07', '10:30', 'Juan Pérez', 'Mazda 3 2018', 'ABC123', '573001234567', 'BOT', '123']
   );
+});
+
+test('ignora una sola vez el mensaje que arrancó el paso', () => {
+  const r1 = bot.responder({ inicio: true, servicio: 'REVISION', lead: '9', mensaje: 'prueba agenda' });
+  // Kommo reenvía "prueba agenda" como primera respuesta: no se contesta nada y se sigue esperando el día.
+  const r2 = bot.responder({ estado: r1.siguiente, mensaje: 'Prueba agenda' });
+  assert.equal(r2.estado, 'esperar');
+  assert.deepEqual(r2.handlers, []);
+  assert.equal(r2.siguiente.paso, 'dia');
+  assert.ok(!('mensajeInicial' in r2.siguiente));
+  // Si lo vuelve a escribir, ya se toma como respuesta.
+  const r3 = bot.responder({ estado: r2.siguiente, mensaje: 'prueba agenda' });
+  assert.equal(r3.handlers[0].params.value, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇');
+  // Si la primera respuesta es distinta, se procesa normal.
+  const r4 = bot.responder({ estado: r1.siguiente, mensaje: 'Jue 8 oct' });
+  assert.equal(r4.siguiente.paso, 'hora');
 });
 
 test('hoy solo ofrece horas con 2 horas de anticipación', () => {
@@ -122,15 +138,15 @@ test('si la hora se ocupa mientras el cliente elige, ofrece otra', () => {
   const r = bot.responder({ estado: { ...vehiculo.siguiente, telefono: '573001112233' }, mensaje: 'Kia Picanto ABC123' });
   assert.equal(r.estado, 'esperar');
   assert.equal(r.siguiente.paso, 'hora');
-  assert.equal(r.handlers[0].params.value, 'Esa hora se acaba de ocupar 😕 Elige otra 👇');
+  assert.equal(r.handlers[0].params.value, 'Esa hora se acaba de ocupar 😕 Toca el botón y elige otra 👇');
   assert.ok(!r.handlers[0].params.buttons.includes('10:30 a. m.'));
   assert.equal(nombre.siguiente.hora, '10:30');
 });
 
 test('pide la placa y el celular cuando faltan', () => {
   const r = charla(['Jue 8 oct', '8:30', 'Luis', 'Chevrolet Spark', 'no sé', 'xyz 789', '123', '300 555 1234']);
-  assert.equal(r[4].handlers[0].params.value, '¿Y la placa? Ej: ABC123');
-  assert.match(r[5].handlers[0].params.value, /confirmas la placa/);
+  assert.equal(r[4].handlers[0].params.value, '¿Y la placa? Son 3 letras y 3 números. Ej: ABC123');
+  assert.match(r[5].handlers[0].params.value, /Escríbeme la placa/);
   assert.match(r[6].handlers[0].params.value, /A qué celular/);
   assert.match(r[7].handlers[0].params.value, /10 dígitos/);
   const listo = r[8];
@@ -140,15 +156,46 @@ test('pide la placa y el celular cuando faltan', () => {
 
 test('vuelve a preguntar si no entiende, permite cambiar de día y pasar a asesor', () => {
   const [, noEntendio] = charla(['cuando puedan']);
-  assert.equal(noEntendio.handlers[0].params.value, 'No te entendí 🙈 Elige un día de la lista 👇');
+  assert.equal(noEntendio.handlers[0].params.value, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇');
   assert.equal(noEntendio.siguiente.paso, 'dia');
 
-  const [, , otroDia] = charla(['Vie 9 oct', 'Otro día']);
+  const [, , otroDia] = charla(['Vie 9 oct', 'Ver otros días']);
   assert.equal(otroDia.siguiente.paso, 'dia');
+
+  // Ya dando el nombre, pide cambiar la fecha: vuelve a los días.
+  const [, , , cambiar] = charla(['Viernes 9', '8:30', 'quiero cambiar la fecha']);
+  assert.equal(cambiar.siguiente.paso, 'dia');
 
   const [, , asesor] = charla(['Vie 9 oct', 'mejor quiero hablar con un asesor']);
   assert.equal(asesor.estado, 'asesor');
   assert.equal(asesor.data.estado, 'asesor');
+});
+
+test('nombres de día claros y cortos para los botones', () => {
+  assert.equal(etiquetaDia('2026-10-06', '2026-10-06'), 'Hoy, martes 6');
+  assert.equal(etiquetaDia('2026-10-07', '2026-10-06'), 'Mañana, miércoles 7');
+  assert.equal(etiquetaDia('2026-10-09', '2026-10-06'), 'Viernes 9');
+  assert.equal(etiquetaDia('2026-11-02', '2026-10-28'), 'Lunes 2 de noviembre');
+  assert.equal(etiquetaDia('2026-09-30', '2026-08-28'), 'Miércoles 30 sep'); // "de septiembre" no cabe en 20
+  assert.equal(etiquetaDia('2026-10-01', '2026-09-30'), 'Mañana, jueves 1');
+});
+
+test('para clientes que se confunden', () => {
+  // Responde con el número de la opción.
+  const [, porNumero] = charla(['2']);
+  assert.equal(porNumero.siguiente.fecha, '2026-10-07');
+  // "ok" no es un nombre.
+  const [, , , okNoEsNombre] = charla(['jueves', '8 y 30', 'ok']);
+  assert.equal(okNoEsNombre.siguiente.paso, 'nombre');
+  assert.match(okNoEsNombre.handlers[0].params.value, /solo tu nombre/);
+  // Solo manda la placa: pide marca y modelo.
+  const [, , , , soloPlaca] = charla(['jueves', '10:30', 'Pedro', 'placa abc 123']);
+  assert.equal(soloPlaca.siguiente.paso, 'modelo');
+  assert.equal(soloPlaca.siguiente.placa, 'ABC123');
+  // Tres respuestas que no entiende: pasa a un asesor.
+  const [, , , tercera] = charla(['ajá', 'no sé', 'lo que sea']);
+  assert.equal(tercera.estado, 'asesor');
+  assert.equal(tercera.data.motivo, 'no_entendio');
 });
 
 test('sin cupos en los próximos días pasa al asesor', () => {

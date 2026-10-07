@@ -1,19 +1,28 @@
 // Conversación de agendamiento por WhatsApp: día → hora → nombre → vehículo y placa → reserva.
 // No envía nada por sí solo: devuelve qué mostrarle al cliente y en qué paso queda.
-// Kommo solo acepta textos de máximo 80 caracteres en cada mensaje que manda la app.
+// Kommo solo acepta textos de máximo 80 caracteres en cada mensaje que manda la app,
+// y WhatsApp corta los botones a 20 caracteres.
+// Pensada para que cualquiera la entienda: textos con día y fecha completos, ejemplos en cada
+// pregunta, acepta respuestas escritas a mano y, si no entiende 3 veces, pasa a un asesor.
 
 const config = require('../config');
 const { ErrorAgenda, normalizarTelefono } = require('./agenda');
-const { ahora, sumarDias, diaSemana, fechaLarga, horaCorta } = require('./fechas');
+const { ahora, sumarDias, diaSemana, fechaLarga, horaCorta, MESES } = require('./fechas');
 
 const MAX_TEXTO = 80;
+const MAX_BOTON = 20;
 const DIAS_A_OFRECER = 6;
-const OTRO_DIA = 'Otro día';
-const DIAS_CORTOS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const MAX_INTENTOS = 3;
+const OTRO_DIA = 'Ver otros días';
+const DIAS_LARGOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+const NO_ES_NOMBRE = new Set([
+  'si', 'sii', 'siii', 'no', 'ok', 'okey', 'listo', 'dale', 'gracias', 'hola', 'buenas', 'bueno', 'claro',
+  'vale', 'perfecto', 'aja', 'bien', 'buenos dias', 'buenas tardes', 'buenas noches', 'quiero agendar',
+]);
 
-// Minúsculas, sin tildes ni signos: "Mañana · Mié 7 oct" → "manana mie 7 oct".
+// Minúsculas, sin tildes ni signos: "Mañana, miércoles 7" → "manana miercoles 7".
 const normalizar = (s) =>
   String(s || '')
     .toLowerCase()
@@ -23,24 +32,28 @@ const normalizar = (s) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-function recortar(texto) {
-  const letras = [...texto];
-  return letras.length <= MAX_TEXTO ? texto : `${letras.slice(0, MAX_TEXTO - 1).join('')}…`;
+const largo = (s) => [...s].length;
+function recortar(texto, max = MAX_TEXTO) {
+  return largo(texto) <= max ? texto : `${[...texto].slice(0, max - 1).join('')}…`;
 }
 const mostrarTexto = (texto) => ({ handler: 'show', params: { type: 'text', value: recortar(texto) } });
 const mostrarBotones = (texto, botones) => ({
   handler: 'show',
-  params: { type: 'buttons', value: recortar(texto), buttons: botones },
+  params: { type: 'buttons', value: recortar(texto), buttons: botones.map((b) => recortar(b, MAX_BOTON)) },
 });
 
 const mayuscula = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// "Hoy, martes 6" · "Mañana, miércoles 7" · "Jueves 8" · "Lunes 2 de noviembre" (si cambia el mes).
 function etiquetaDia(fecha, hoy) {
   const [, m, d] = fecha.split('-').map(Number);
-  const base = `${DIAS_CORTOS[diaSemana(fecha)]} ${d} ${MESES_CORTOS[m - 1]}`;
-  if (fecha === hoy) return `Hoy · ${base}`;
-  if (fecha === sumarDias(hoy, 1)) return `Mañana · ${base}`;
-  return base;
+  const nombre = DIAS_LARGOS[diaSemana(fecha)];
+  if (fecha === hoy) return `Hoy, ${nombre.toLowerCase()} ${d}`;
+  if (fecha === sumarDias(hoy, 1)) return `Mañana, ${nombre.toLowerCase()} ${d}`;
+  const base = `${nombre} ${d}`;
+  if (m === Number(hoy.slice(5, 7))) return base;
+  const conMes = `${base} de ${MESES[m - 1]}`;
+  return largo(conMes) <= MAX_BOTON ? conMes : `${base} ${MESES_CORTOS[m - 1]}`;
 }
 
 function elegirDia(mensaje, dias, hoy) {
@@ -54,23 +67,25 @@ function elegirDia(mensaje, dias, hoy) {
   const diaSem = NOMBRES_DIA.findIndex((n) => new RegExp(`\\b${n}\\b`).test(t));
   const numero = t.match(/\b([0-3]?\d)\b/);
   if (diaSem < 0 && !numero) return null;
-  return (
-    dias.find(
-      (d) =>
-        (diaSem < 0 || diaSemana(d.fecha) === diaSem) && (!numero || Number(d.fecha.slice(8)) === Number(numero[1]))
-    ) || null
+  const porFecha = dias.find(
+    (d) => (diaSem < 0 || diaSemana(d.fecha) === diaSem) && (!numero || Number(d.fecha.slice(8)) === Number(numero[1]))
   );
+  if (porFecha) return porFecha;
+  // Respondió solo con el número de la opción ("2" = segunda de la lista).
+  if (diaSem < 0 && t === numero[1] && Number(t) >= 1 && Number(t) <= dias.length) return dias[Number(t) - 1];
+  return null;
 }
 
 function elegirHora(mensaje, horas) {
   const t = normalizar(mensaje);
   const exacta = horas.find((h) => normalizar(horaCorta(h)) === t);
   if (exacta) return exacta;
-  const m = t.match(/\b(\d{1,2})(?:[: ]?(\d{2}))?\s*(a m|am|p m|pm)?\b/);
+  const m = t.match(/\b(\d{1,2})(?:[: ]?(\d{2}))?\s*(a m|am|p m|pm|de la tarde|de la manana)?\b/);
   if (!m) return null;
   let h = Number(m[1]);
   const min = m[2] === undefined ? null : Number(m[2]);
-  if (m[3] && m[3].startsWith('p') && h < 12) h += 12;
+  const tarde = m[3] && (m[3].startsWith('p') || m[3] === 'de la tarde');
+  if (tarde && h < 12) h += 12;
   if (!m[3] && h >= 1 && h <= 6) h += 12; // "a las 2" → 2 p. m.
   return (
     horas.find((x) => {
@@ -86,7 +101,7 @@ function separarPlaca(texto) {
   if (!m) return { placa: null, resto: String(texto || '').trim() };
   const resto = String(texto)
     .replace(m[0], ' ')
-    .replace(/\bplaca\b:?/i, ' ')
+    .replace(/\b(la )?placa( es)?\b:?/i, ' ')
     .replace(/\s*[,;:.-]+\s*$/g, '')
     .replace(/^\s*[,;:.-]+\s*/g, '')
     .replace(/\s+/g, ' ')
@@ -99,7 +114,8 @@ function limpiarNombre(texto) {
     .replace(/^\s*(hola[,!.\s]*)?(me llamo|mi nombre es|soy|a nombre de)\s+/i, '')
     .replace(/[.!]+$/, '')
     .trim();
-  if (nombre.length < 2 || nombre.length > 60 || /\d{4,}/.test(nombre)) return null;
+  if (nombre.length < 2 || nombre.length > 60 || /\d{4,}|@|https?:/i.test(nombre)) return null;
+  if (NO_ES_NOMBRE.has(normalizar(nombre))) return null;
   return nombre;
 }
 
@@ -109,15 +125,32 @@ function telefonoValido(texto) {
 }
 
 const quiereAsesor = (mensaje) => /\b(asesor|humano|persona|cancelar)\b/.test(normalizar(mensaje));
+const quiereOtroDia = (mensaje) =>
+  /\b(otro dia|otros dias|otra fecha|cambiar (el dia|la fecha|de dia|de fecha)|ver otros dias)\b/.test(normalizar(mensaje));
 
 function crearBot(agenda, { reloj = () => new Date() } = {}) {
-  const esperar = (estado, handlers) => ({ estado: 'esperar', siguiente: estado, handlers, data: { estado: 'esperar', paso: estado.paso } });
+  const esperar = (estado, handlers) => ({
+    estado: 'esperar',
+    siguiente: estado,
+    handlers,
+    data: { estado: 'esperar', paso: estado.paso },
+  });
   const asesor = (texto, motivo) => ({
     estado: 'asesor',
     siguiente: null,
     handlers: [mostrarTexto(texto)],
     data: { estado: 'asesor', motivo },
   });
+
+  // Cada vez que no entiende suma un intento; a la tercera pasa a un asesor.
+  function noEntendi(s, repetir) {
+    const fallos = (s.fallos || 0) + 1;
+    if (fallos >= MAX_INTENTOS) {
+      return asesor('No logré entenderte 🙈 Un asesor te escribe para ayudarte 🙌', 'no_entendio');
+    }
+    return repetir({ ...s, fallos });
+  }
+  const avanzar = (s) => ({ ...s, fallos: 0 });
 
   function ofrecerDias(s, aviso) {
     const hoy = ahora(reloj()).fecha;
@@ -126,21 +159,30 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       return asesor('No tengo cupos libres en los próximos días. Un asesor te escribe 🙌', 'sin_cupos');
     }
     const servicio = config.servicios[s.servicio].corto.toLowerCase();
-    const texto = aviso || `¿Qué día te queda bien para la ${servicio}? 👇`;
-    return esperar(
-      { ...s, paso: 'dia', dias },
-      [mostrarBotones(texto, dias.map((d) => d.etiqueta))]
-    );
+    const texto = aviso || `¿Qué día te queda bien para la ${servicio}? Toca el botón y elige un día 👇`;
+    return esperar({ ...s, paso: 'dia', dias, fecha: null, hora: null }, [
+      mostrarBotones(texto, dias.map((d) => d.etiqueta)),
+    ]);
   }
 
   function ofrecerHoras(s, aviso) {
     const horas = agenda.horasLibres(s.fecha).map((h) => h.hora);
-    if (!horas.length) return ofrecerDias(s, 'Ese día ya no tiene cupos 😕 Elige otro 👇');
-    const texto = aviso || `Horas libres el ${fechaLarga(s.fecha)} 👇`;
+    if (!horas.length) return ofrecerDias(s, 'Ese día ya se llenó 😕 Toca el botón y elige otro día 👇');
+    const texto = aviso || `Horas libres el ${fechaLarga(s.fecha)}. Toca el botón y elige una 👇`;
     return esperar({ ...s, paso: 'hora', horas }, [mostrarBotones(texto, [...horas.map(horaCorta), OTRO_DIA])]);
   }
 
+  const pedirNombre = (s) => esperar({ ...s, paso: 'nombre' }, [mostrarTexto('¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊')]);
+  const pedirVehiculo = (s) =>
+    esperar({ ...s, paso: 'vehiculo' }, [mostrarTexto('¿Qué vehículo es y cuál es la placa? Ej: Mazda 3 2018, ABC123')]);
+
   function pedirSiguienteDato(s) {
+    if (!s.placa) {
+      return esperar({ ...s, paso: 'placa' }, [mostrarTexto('¿Y la placa? Son 3 letras y 3 números. Ej: ABC123')]);
+    }
+    if (!s.vehiculo) {
+      return esperar({ ...s, paso: 'modelo' }, [mostrarTexto('¿Qué marca y modelo es tu vehículo? Ej: Mazda 3 2018')]);
+    }
     if (!s.telefono) {
       return esperar({ ...s, paso: 'telefono' }, [mostrarTexto('¿A qué celular te escribimos? Ej: 300 123 4567')]);
     }
@@ -192,7 +234,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         ]);
       }
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕 Elige otra 👇');
+        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕 Toca el botón y elige otra 👇');
       }
       return asesor('Tuve un problema agendando. Un asesor te escribe 🙌', err.codigo);
     }
@@ -206,60 +248,83 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         servicio: config.servicios[String(servicio || '').toUpperCase()] ? String(servicio).toUpperCase() : 'REVISION',
         telefono: telefonoValido(contacto.telefono),
         nombreKommo: contacto.nombre || null,
+        // Kommo puede entregar el mensaje que arrancó el paso (p. ej. "Quiero agendar") como si fuera
+        // la primera respuesta del cliente. Se recuerda para ignorarlo esa única vez.
+        mensajeInicial: String(mensaje || ''),
       };
       return ofrecerDias(s);
     }
 
-    const s = estado;
+    let s = estado;
+    if ('mensajeInicial' in s) {
+      const { mensajeInicial, ...resto } = s;
+      s = resto;
+      if (mensajeInicial && normalizar(mensaje) === normalizar(mensajeInicial)) {
+        return { estado: 'esperar', siguiente: s, handlers: [], data: { estado: 'esperar', paso: s.paso } };
+      }
+    }
     if (quiereAsesor(mensaje)) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');
+    if (s.paso !== 'dia' && quiereOtroDia(mensaje)) return ofrecerDias(avanzar(s));
 
     switch (s.paso) {
       case 'dia': {
-        const hoy = ahora(reloj()).fecha;
-        const dia = elegirDia(mensaje, s.dias, hoy);
-        if (!dia) return ofrecerDias(s, 'No te entendí 🙈 Elige un día de la lista 👇');
-        return ofrecerHoras({ ...s, fecha: dia.fecha });
+        const dia = elegirDia(mensaje, s.dias, ahora(reloj()).fecha);
+        if (!dia) {
+          return noEntendi(s, (x) => ofrecerDias(x, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇'));
+        }
+        return ofrecerHoras(avanzar({ ...s, fecha: dia.fecha }));
       }
       case 'hora': {
-        if (normalizar(mensaje).startsWith(normalizar(OTRO_DIA))) return ofrecerDias({ ...s, fecha: null });
         const hora = elegirHora(mensaje, s.horas);
-        if (!hora) return ofrecerHoras(s, 'No te entendí 🙈 Elige una hora de la lista 👇');
-        return esperar({ ...s, hora, paso: 'nombre' }, [mostrarTexto('¿A nombre de quién agendo la cita?')]);
+        if (!hora) {
+          return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈 Toca el botón de abajo y elige una hora 👇'));
+        }
+        return pedirNombre(avanzar({ ...s, hora }));
       }
       case 'nombre': {
         const nombre = limpiarNombre(mensaje);
-        if (!nombre) return esperar(s, [mostrarTexto('¿Me escribes tu nombre, por favor?')]);
-        return esperar({ ...s, nombre, paso: 'vehiculo' }, [
-          mostrarTexto('¿Qué vehículo es y cuál es la placa? Ej: Mazda 3 2018, ABC123'),
-        ]);
+        if (!nombre) {
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme solo tu nombre, por favor. Ej: Juan Pérez')]));
+        }
+        return pedirVehiculo(avanzar({ ...s, nombre }));
       }
       case 'vehiculo': {
         const { placa, resto } = separarPlaca(mensaje);
-        if (!placa) {
-          return esperar({ ...s, vehiculo: resto.slice(0, 120) || null, paso: 'placa' }, [
-            mostrarTexto('¿Y la placa? Ej: ABC123'),
-          ]);
+        const vehiculo = normalizar(resto) && !NO_ES_NOMBRE.has(normalizar(resto)) ? resto.slice(0, 120) : null;
+        if (!placa && !vehiculo) {
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el vehículo y la placa. Ej: Mazda 3 2018, ABC123')]));
         }
-        return pedirSiguienteDato({ ...s, vehiculo: resto.slice(0, 120) || null, placa });
+        return pedirSiguienteDato(avanzar({ ...s, vehiculo, placa }));
       }
       case 'placa': {
         const { placa } = separarPlaca(mensaje);
         const suelta = normalizar(mensaje).replace(/[^a-z0-9]/g, '').toUpperCase();
-        const valida = placa || (suelta.length >= 5 && suelta.length <= 7 ? suelta : null);
-        if (!valida) return esperar(s, [mostrarTexto('¿Me confirmas la placa? Son 3 letras y 3 números, ej: ABC123')]);
-        return pedirSiguienteDato({ ...s, placa: valida });
+        const valida = placa || (suelta.length >= 5 && suelta.length <= 7 && /[A-Z]/.test(suelta) && /\d/.test(suelta) ? suelta : null);
+        if (!valida) {
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la placa: 3 letras y 3 números. Ej: ABC123')]));
+        }
+        return pedirSiguienteDato(avanzar({ ...s, placa: valida }));
+      }
+      case 'modelo': {
+        const { resto } = separarPlaca(mensaje);
+        if (!normalizar(resto) || NO_ES_NOMBRE.has(normalizar(resto))) {
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la marca y el modelo. Ej: Mazda 3 2018')]));
+        }
+        return pedirSiguienteDato(avanzar({ ...s, vehiculo: resto.slice(0, 120) }));
       }
       case 'telefono': {
         const telefono = telefonoValido(mensaje);
-        if (!telefono) return esperar(s, [mostrarTexto('Escríbeme el celular con sus 10 dígitos, ej: 300 123 4567')]);
-        return reservar({ ...s, telefono });
+        if (!telefono) {
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el celular con sus 10 dígitos. Ej: 300 123 4567')]));
+        }
+        return reservar(avanzar({ ...s, telefono }));
       }
       default:
-        return ofrecerDias({ ...s, paso: null });
+        return ofrecerDias(avanzar(s));
     }
   }
 
   return { responder };
 }
 
-module.exports = { crearBot, elegirDia, elegirHora, separarPlaca, limpiarNombre, MAX_TEXTO };
+module.exports = { crearBot, elegirDia, elegirHora, etiquetaDia, separarPlaca, limpiarNombre, MAX_TEXTO };

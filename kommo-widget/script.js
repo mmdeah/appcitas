@@ -60,14 +60,13 @@ define([], function () {
         return JSON.stringify([
           // 0: primera consulta a la agenda
           { question: [consultarAgenda('si', servicio), irA('question', 1)], require: [] },
-          // 1: según lo que respondió la agenda: esperar al cliente, terminar o pasar a asesor
+          // 1: según lo que respondió la agenda: esperar un mensaje NUEVO del cliente, terminar o pasar a asesor
           {
             question: [
-              siEstado('esperar', irA('answer', 1)),
+              siEstado('esperar', { handler: 'wait_answer', params: { type: 'question', step: 2 } }),
               siEstado('listo', { handler: 'exits', params: { value: 'listo' } }),
               { handler: 'exits', params: { value: 'asesor' } }
             ],
-            answer: [irA('question', 2)],
             require: []
           },
           // 2: el cliente respondió: se le pasa a la agenda
