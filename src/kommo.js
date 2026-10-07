@@ -6,14 +6,16 @@ const config = require('../config');
 
 const DOMINIO = `${config.kommo.subdominio}.kommo.com`;
 
-// El bot de Kommo firma cada envío con la clave secreta de la integración (JWT HS256).
+// El bot de Kommo firma cada envío con la clave secreta de la integración (JWT; Kommo usa HS512).
+const ALGORITMOS = { HS256: 'sha256', HS512: 'sha512' };
+
 function verificarToken(token, secreto, momento = Date.now()) {
   const partes = String(token || '').split('.');
   if (partes.length !== 3) throw new Error('token mal formado');
   const [cabecera, cuerpo, firma] = partes;
   const alg = JSON.parse(Buffer.from(cabecera, 'base64url').toString('utf8')).alg;
-  if (alg !== 'HS256') throw new Error(`algoritmo no soportado: ${alg}`);
-  const esperada = crypto.createHmac('sha256', secreto).update(`${cabecera}.${cuerpo}`).digest();
+  if (!Object.hasOwn(ALGORITMOS, alg)) throw new Error(`algoritmo no soportado: ${alg}`);
+  const esperada = crypto.createHmac(ALGORITMOS[alg], secreto).update(`${cabecera}.${cuerpo}`).digest();
   const recibida = Buffer.from(firma, 'base64url');
   if (esperada.length !== recibida.length || !crypto.timingSafeEqual(esperada, recibida)) {
     throw new Error('firma inválida');

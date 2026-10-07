@@ -36,6 +36,7 @@ function crearAtencion({ bot, conversaciones, kommo }) {
     }
 
     await kommo.continuar(direccion, { data: r.data, execute_handlers: r.handlers });
+    console.log('Kommo: respuesta enviada al bot', { lead, estado: r.data.estado, mensajes: r.handlers.length });
 
     if (r.cita) {
       const c = r.cita;

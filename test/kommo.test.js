@@ -5,16 +5,19 @@ const { verificarToken, direccionDeRetornoValida, leerCuerpo } = require('../src
 
 const SECRETO = 'secreto-de-prueba';
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-function firmar(datos, { secreto = SECRETO, alg = 'HS256' } = {}) {
+function firmar(datos, { secreto = SECRETO, alg = 'HS512' } = {}) {
   const base = `${b64({ alg, typ: 'JWT' })}.${b64(datos)}`;
-  return `${base}.${crypto.createHmac('sha256', secreto).update(base).digest('base64url')}`;
+  const hash = alg === 'HS256' ? 'sha256' : 'sha512';
+  return `${base}.${crypto.createHmac(hash, secreto).update(base).digest('base64url')}`;
 }
 const ahora = Date.parse('2026-10-06T13:00:00Z');
 const seg = ahora / 1000;
 
 test('acepta solo tokens firmados con la clave secreta de la integración', () => {
   const token = firmar({ account_id: 1, exp: seg + 300 });
-  assert.equal(verificarToken(token, SECRETO, ahora).account_id, 1);
+  assert.equal(verificarToken(token, SECRETO, ahora).account_id, 1); // HS512, como firma Kommo
+  assert.equal(verificarToken(firmar({ account_id: 3 }, { alg: 'HS256' }), SECRETO, ahora).account_id, 3);
+  assert.throws(() => verificarToken(firmar({}, { alg: 'RS256' }), SECRETO, ahora), /algoritmo/);
   assert.throws(() => verificarToken(firmar({ exp: seg + 300 }, { secreto: 'otra' }), SECRETO, ahora), /firma inválida/);
   const [c, , f] = token.split('.');
   assert.throws(() => verificarToken(`${c}.${b64({ account_id: 2, exp: seg + 300 })}.${f}`, SECRETO, ahora), /firma inválida/);

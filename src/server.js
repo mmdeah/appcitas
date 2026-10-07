@@ -135,9 +135,15 @@ async function atender(req, res) {
 
   if (metodo === 'POST' && ruta === '/kommo/bot') {
     if (!kommo.activo) return json(res, 503, { error: 'Kommo sin configurar' });
-    let cuerpo;
+    let cuerpo = {};
     try {
       cuerpo = leerCuerpo(await leerTexto(req), req.headers['content-type'] || '');
+      console.log('Kommo: llegó consulta del bot', {
+        tipo: req.headers['content-type'],
+        campos: Object.keys(cuerpo),
+        lead: cuerpo.data?.lead,
+        inicio: cuerpo.data?.inicio,
+      });
       kommo.verificar(cuerpo.token);
     } catch (err) {
       console.warn('Kommo: petición rechazada:', err.message);
