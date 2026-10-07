@@ -86,7 +86,7 @@ test('ignora una sola vez el mensaje que arrancó el paso', () => {
   assert.ok(!('mensajeInicial' in r2.siguiente));
   // Si lo vuelve a escribir, ya se toma como respuesta.
   const r3 = bot.responder({ estado: r2.siguiente, mensaje: 'prueba agenda' });
-  assert.equal(r3.handlers[0].params.value, 'No te entendí 🙈 Toca una de las opciones 👇');
+  assert.equal(r3.acuse, 'No te entendí 🙈');
   // Si la primera respuesta es distinta, se procesa normal.
   const r4 = bot.responder({ estado: r1.siguiente, mensaje: 'Jue 8 oct' });
   assert.equal(r4.siguiente.paso, 'hora');
@@ -138,7 +138,7 @@ test('si la hora se ocupa mientras el cliente elige, ofrece otra', () => {
   const r = bot.responder({ estado: { ...vehiculo.siguiente, telefono: '573001112233' }, mensaje: 'Kia Picanto ABC123' });
   assert.equal(r.estado, 'esperar');
   assert.equal(r.siguiente.paso, 'hora');
-  assert.equal(r.handlers[0].params.value, 'Esa hora se acaba de ocupar 😕 Toca otra opción 👇');
+  assert.equal(r.acuse, 'Esa hora se acaba de ocupar 😕');
   assert.ok(!r.siguiente.horas.includes('10:30'));
   assert.equal(nombre.siguiente.hora, '10:30');
 });
@@ -156,7 +156,8 @@ test('pide la placa y el celular cuando faltan', () => {
 
 test('vuelve a preguntar si no entiende, permite cambiar de día y pasar a asesor', () => {
   const [, noEntendio] = charla(['cuando puedan']);
-  assert.equal(noEntendio.handlers[0].params.value, 'No te entendí 🙈 Toca una de las opciones 👇');
+  assert.equal(noEntendio.acuse, 'No te entendí 🙈');
+  assert.equal(noEntendio.handlers[0].params.value, '¿Qué día te queda bien para la revisión? Toca una opción 👇');
   assert.equal(noEntendio.siguiente.paso, 'dia');
 
   const [, , otroDia] = charla(['Vie 9 oct', 'Ver otros días']);
@@ -191,12 +192,12 @@ test('"Otra fecha" y "Otra hora" dejan escribir el día y la hora', () => {
 
   // Un día sin cupo (domingo 11) propone los más cercanos con cupo.
   const [, , domingo] = charla(['Otra fecha', 'el domingo']);
-  assert.match(domingo.handlers[0].params.value, /Ese día no tengo cupo/);
+  assert.match(domingo.acuse, /Ese día no tengo cupo/);
   assert.deepEqual(domingo.handlers[0].params.buttons, ['Viernes 9', 'Sábado 10', 'Otra fecha']);
 
   const [, , otraHora, horaEscrita] = charla(['Viernes 9', 'Otra hora', '2:30']);
-  assert.equal(otraHora.handlers[0].params.value, 'Escríbeme la hora que prefieres. Ej: 10:30 👇');
-  assert.equal(otraHora.handlers[1].params.value, 'Horas libres: 8:30, 9:30, 10:30, 11:30 am · 12:30, 1:30, 2:30, 3:30 pm');
+  assert.equal(otraHora.handlers[0].params.value, 'Horas libres: 8:30, 9:30, 10:30, 11:30 am · 12:30, 1:30, 2:30, 3:30 pm');
+  assert.equal(otraHora.handlers[1].params.value, 'Escríbeme la hora que prefieres. Ej: 10:30 👇');
   assert.equal(horaEscrita.siguiente.hora, '14:30');
   assert.equal(horaEscrita.siguiente.paso, 'nombre');
 
@@ -264,8 +265,11 @@ test('atención completa con Kommo simulado: guarda el paso, responde y deja not
   assert.match(enviados[0].data.texto, /sincronización/);
   assert.equal(enviados[0].data.b3, 'Otra fecha');
   assert.equal(enviados[2].data.texto, '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊');
-  // Mientras espera, la app no le escribe al cliente: eso lo hace el bloque Mensaje de Kommo.
-  for (const e of enviados.slice(0, 4)) assert.equal(e.execute_handlers[0].params.name, 'set_tag');
+  // Mientras espera, la app solo manda la confirmación corta; la pregunta la envía el bloque Mensaje de Kommo.
+  assert.deepEqual(enviados.slice(0, 4).map((e) => e.execute_handlers[0].params.value), [
+    '¡Listo! Vamos a agendar tu sincronización 🙌', 'Perfecto, el viernes 9 de octubre 👍', 'Súper, a las 8:30 a. m. ✅', 'Gracias, Ana 🙌',
+  ]);
+  for (const e of enviados) for (const h of e.execute_handlers) assert.equal(h.handler, 'show');
   // La confirmación final sí se manda directo.
   assert.match(enviados[4].execute_handlers[0].params.value, /Listo, Ana!/);
   assert.equal(conversaciones.leer('77'), null);
@@ -291,19 +295,22 @@ test('si algo falla, Kommo igual recibe respuesta y pasa al asesor', async () =>
     console.warn = avisoOriginal;
   }
   assert.deepEqual(enviados.map((e) => [e.data.estado, e.data.motivo]), [['asesor', 'error'], ['asesor', 'sin_lead']]);
-  // Kommo no acepta respuestas sin instrucciones: va la etiqueta, que el cliente no ve.
-  for (const e of enviados) assert.equal(e.execute_handlers[0].params.name, 'set_tag');
+  // Kommo exige al menos una instrucción y solo acepta "show".
+  for (const e of enviados) assert.equal(e.execute_handlers[0].handler, 'show');
 });
 
 test('completa a 3 botones cuando hay menos opciones', () => {
   const { paraKommo } = require('../src/atencion');
   const r = {
     data: { estado: 'esperar', paso: 'hora' },
+    acuse: 'Perfecto 👍',
     handlers: [{ handler: 'show', params: { type: 'buttons', value: '¿A qué hora?', buttons: ['3:30 p. m.', 'Otro día'] } }],
   };
-  assert.deepEqual(paraKommo(r).data, {
+  const k = paraKommo(r);
+  assert.deepEqual(k.data, {
     estado: 'botones', paso: 'hora', texto: '¿A qué hora?', b1: '3:30 p. m.', b2: 'Otro día', b3: 'Hablar con asesor',
   });
+  assert.deepEqual(k.handlers, [{ handler: 'show', params: { type: 'text', value: 'Perfecto 👍' } }]);
 });
 
 test('cuando Kommo reenvía el mensaje inicial, repite la pregunta sin escribirle aparte al cliente', async () => {
@@ -320,7 +327,5 @@ test('cuando Kommo reenvía el mensaje inicial, repite la pregunta sin escribirl
   }
   assert.equal(enviados[1].data.estado, 'botones');
   assert.equal(enviados[1].data.texto, enviados[0].data.texto);
-  assert.deepEqual(enviados[1].execute_handlers, [
-    { handler: 'action', params: { name: 'set_tag', params: { type: 2, value: 'agenda-bot' } } },
-  ]);
+  assert.deepEqual(enviados[1].execute_handlers, [{ handler: 'show', params: { type: 'text', value: '👇' } }]);
 });

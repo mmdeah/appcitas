@@ -143,10 +143,13 @@ const quiereOtroDia = (mensaje) =>
   /\b(otro dia|otros dias|otra fecha|cambiar (el dia|la fecha|de dia|de fecha)|ver otros dias)\b/.test(normalizar(mensaje));
 
 function crearBot(agenda, { reloj = () => new Date() } = {}) {
-  const esperar = (estado, handlers) => ({
+  // acuse: mensaje corto que se manda antes de la pregunta ("Perfecto, el jueves 8 👍").
+  // Kommo exige que la app siempre mande algo visible, y la pregunta la envía el bloque Mensaje.
+  const esperar = (estado, handlers, acuse = '👇') => ({
     estado: 'esperar',
     siguiente: estado,
     handlers,
+    acuse,
     data: { estado: 'esperar', paso: estado.paso },
   });
   const asesor = (texto, motivo) => ({
@@ -167,7 +170,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
   const avanzar = (s) => ({ ...s, fallos: 0 });
 
   // Sugiere 2 días: los que tienen menos citas entre los próximos con cupo (o los más cercanos a "cercaDe").
-  function ofrecerDias(s, aviso, cercaDe) {
+  function ofrecerDias(s, acuse, cercaDe) {
     const hoy = ahora(reloj()).fecha;
     const disponibles = agenda.diasConCupo(DIAS_EN_VENTANA).map(({ fecha }) => ({ fecha, etiqueta: etiquetaDia(fecha, hoy) }));
     if (!disponibles.length) {
@@ -185,49 +188,62 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
     const botones = elegidos.map((d) => d.etiqueta);
     if (disponibles.length > elegidos.length) botones.push(OTRA_FECHA);
     const servicio = config.servicios[s.servicio].corto.toLowerCase();
-    const texto = aviso || `¿Qué día te queda bien para la ${servicio}? Toca una opción 👇`;
     return esperar(
       { ...s, paso: 'dia', dias: disponibles, sugeridos: elegidos.map((d) => d.fecha), fecha: null, hora: null },
-      [mostrarBotones(texto, botones)]
+      [mostrarBotones(`¿Qué día te queda bien para la ${servicio}? Toca una opción 👇`, botones)],
+      acuse || `¡Listo! Vamos a agendar tu ${servicio} 🙌`
     );
   }
 
-  const pedirDiaEscrito = (s, aviso) =>
-    esperar({ ...s, paso: 'dia_escrito' }, [mostrarTexto(aviso || 'Escríbeme qué día te queda bien. Ej: viernes 16 o el 20')]);
+  const pedirDiaEscrito = (s, acuse = 'Claro 👍') =>
+    esperar({ ...s, paso: 'dia_escrito' }, [mostrarTexto('Escríbeme qué día te queda bien. Ej: viernes 16 o el 20')], acuse);
 
   // Sugiere 2 horas: las que tienen más cupo libre (a igual cupo, las más temprano).
-  function ofrecerHoras(s, aviso) {
+  function ofrecerHoras(s, acuse) {
     const libres = agenda.horasLibres(s.fecha);
-    if (!libres.length) return ofrecerDias(s, 'Ese día ya se llenó 😕 Toca otra opción 👇');
+    if (!libres.length) return ofrecerDias(s, 'Ese día ya se llenó 😕');
     const elegidas = [...libres]
       .sort((a, b) => b.libres - a.libres || a.hora.localeCompare(b.hora))
       .slice(0, 2)
       .map((h) => h.hora)
       .sort();
     const botones = [...elegidas.map(horaCorta), libres.length > elegidas.length ? OTRA_HORA : OTRO_DIA];
-    const texto = aviso || `¿A qué hora el ${fechaLarga(s.fecha)}? Toca una opción 👇`;
-    return esperar({ ...s, paso: 'hora', horas: libres.map((h) => h.hora) }, [mostrarBotones(texto, botones)]);
+    return esperar(
+      { ...s, paso: 'hora', horas: libres.map((h) => h.hora) },
+      [mostrarBotones(`¿A qué hora el ${fechaLarga(s.fecha)}? Toca una opción 👇`, botones)],
+      acuse || `Perfecto, el ${fechaLarga(s.fecha)} 👍`
+    );
   }
 
-  const pedirHoraEscrita = (s, aviso) =>
-    esperar({ ...s, paso: 'hora_escrita' }, [
-      mostrarTexto(aviso || 'Escríbeme la hora que prefieres. Ej: 10:30 👇'),
-      mostrarTexto(`Horas libres: ${listaHoras(s.horas)}`),
-    ]);
+  const pedirHoraEscrita = (s, acuse = 'Claro 👍') =>
+    esperar(
+      { ...s, paso: 'hora_escrita' },
+      [mostrarTexto(`Horas libres: ${listaHoras(s.horas)}`), mostrarTexto('Escríbeme la hora que prefieres. Ej: 10:30 👇')],
+      acuse
+    );
 
-  const pedirNombre = (s) => esperar({ ...s, paso: 'nombre' }, [mostrarTexto('¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊')]);
+  const pedirNombre = (s) =>
+    esperar(
+      { ...s, paso: 'nombre' },
+      [mostrarTexto('¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊')],
+      `Súper, a las ${horaCorta(s.hora)} ✅`
+    );
   const pedirVehiculo = (s) =>
-    esperar({ ...s, paso: 'vehiculo' }, [mostrarTexto('¿Qué vehículo es y cuál es la placa? Ej: Mazda 3 2018, ABC123')]);
+    esperar(
+      { ...s, paso: 'vehiculo' },
+      [mostrarTexto('¿Qué vehículo es y cuál es la placa? Ej: Mazda 3 2018, ABC123')],
+      `Gracias, ${s.nombre.split(/\s+/)[0].slice(0, 20)} 🙌`
+    );
 
   function pedirSiguienteDato(s) {
     if (!s.placa) {
-      return esperar({ ...s, paso: 'placa' }, [mostrarTexto('¿Y la placa? Son 3 letras y 3 números. Ej: ABC123')]);
+      return esperar({ ...s, paso: 'placa' }, [mostrarTexto('¿Y la placa? Son 3 letras y 3 números. Ej: ABC123')], 'Anotado ✍️');
     }
     if (!s.vehiculo) {
-      return esperar({ ...s, paso: 'modelo' }, [mostrarTexto('¿Qué marca y modelo es tu vehículo? Ej: Mazda 3 2018')]);
+      return esperar({ ...s, paso: 'modelo' }, [mostrarTexto('¿Qué marca y modelo es tu vehículo? Ej: Mazda 3 2018')], 'Anotado ✍️');
     }
     if (!s.telefono) {
-      return esperar({ ...s, paso: 'telefono' }, [mostrarTexto('¿A qué celular te escribimos? Ej: 300 123 4567')]);
+      return esperar({ ...s, paso: 'telefono' }, [mostrarTexto('¿A qué celular te escribimos? Ej: 300 123 4567')], 'Anotado ✍️');
     }
     return reservar(s);
   }
@@ -272,12 +288,14 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
     } catch (err) {
       if (!(err instanceof ErrorAgenda)) throw err;
       if (err.codigo === 'DATOS' && /tel[eé]fono/i.test(err.message)) {
-        return esperar({ ...s, telefono: null, paso: 'telefono' }, [
-          mostrarTexto('Ese número no me sirve 🙈 Escríbeme tu celular, ej: 300 123 4567'),
-        ]);
+        return esperar(
+          { ...s, telefono: null, paso: 'telefono' },
+          [mostrarTexto('Escríbeme tu celular. Ej: 300 123 4567')],
+          'Ese número no me sirve 🙈'
+        );
       }
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕 Toca otra opción 👇');
+        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕');
       }
       return asesor('Tuve un problema agendando. Un asesor te escribe 🙌', err.codigo);
     }
@@ -304,7 +322,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       s = resto;
       if (mensajeInicial && normalizar(mensaje) === normalizar(mensajeInicial)) {
         // Se repite la misma pregunta de días, sin contarlo como "no te entendí".
-        return ofrecerDias(s);
+        return ofrecerDias(s, '👇');
       }
     }
     if (quiereAsesor(mensaje)) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');
@@ -322,7 +340,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         }
         // Acepta el botón o cualquier día con cupo escrito a mano ("el jueves", "mañana", "el 14").
         const dia = elegirDia(mensaje, s.dias, ahora(reloj()).fecha);
-        if (!dia) return noEntendi(s, (x) => ofrecerDias(x, 'No te entendí 🙈 Toca una de las opciones 👇'));
+        if (!dia) return noEntendi(s, (x) => ofrecerDias(x, 'No te entendí 🙈'));
         return ofrecerHoras(avanzar({ ...s, fecha: dia.fecha }));
       }
       case 'dia_escrito': {
@@ -335,25 +353,25 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
           return { fecha, etiqueta: etiquetaDia(fecha, hoy) };
         });
         const pedido = elegirDia(mensaje, calendario, hoy);
-        if (pedido) return ofrecerDias(avanzar(s), 'Ese día no tengo cupo 😕 Te propongo estos. Toca una opción 👇', pedido.fecha);
-        return noEntendi(s, (x) => pedirDiaEscrito(x, 'No te entendí 🙈 Escríbeme el día. Ej: viernes 16 o el 20'));
+        if (pedido) return ofrecerDias(avanzar(s), 'Ese día no tengo cupo 😕 Te propongo los más cercanos', pedido.fecha);
+        return noEntendi(s, (x) => pedirDiaEscrito(x, 'No te entendí 🙈'));
       }
       case 'hora': {
         if (normalizar(mensaje).startsWith(normalizar(OTRA_HORA))) return pedirHoraEscrita(avanzar(s));
         // Acepta el botón o cualquier hora libre escrita a mano ("10:30", "a las 2").
         const hora = elegirHora(mensaje, s.horas);
-        if (!hora) return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈 Toca una de las opciones 👇'));
+        if (!hora) return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈'));
         return pedirNombre(avanzar({ ...s, hora }));
       }
       case 'hora_escrita': {
         const hora = elegirHora(mensaje, s.horas);
-        if (!hora) return noEntendi(s, (x) => pedirHoraEscrita(x, 'No te entendí 🙈 Escríbeme la hora. Ej: 10:30 👇'));
+        if (!hora) return noEntendi(s, (x) => pedirHoraEscrita(x, 'No te entendí 🙈'));
         return pedirNombre(avanzar({ ...s, hora }));
       }
       case 'nombre': {
         const nombre = limpiarNombre(mensaje);
         if (!nombre) {
-          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme solo tu nombre, por favor. Ej: Juan Pérez')]));
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme solo tu nombre, por favor. Ej: Juan Pérez')], 'No te entendí 🙈'));
         }
         return pedirVehiculo(avanzar({ ...s, nombre }));
       }
@@ -361,7 +379,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         const { placa, resto } = separarPlaca(mensaje);
         const vehiculo = normalizar(resto) && !NO_ES_NOMBRE.has(normalizar(resto)) ? resto.slice(0, 120) : null;
         if (!placa && !vehiculo) {
-          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el vehículo y la placa. Ej: Mazda 3 2018, ABC123')]));
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el vehículo y la placa. Ej: Mazda 3 2018, ABC123')], 'No te entendí 🙈'));
         }
         return pedirSiguienteDato(avanzar({ ...s, vehiculo, placa }));
       }
@@ -370,21 +388,21 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         const suelta = normalizar(mensaje).replace(/[^a-z0-9]/g, '').toUpperCase();
         const valida = placa || (suelta.length >= 5 && suelta.length <= 7 && /[A-Z]/.test(suelta) && /\d/.test(suelta) ? suelta : null);
         if (!valida) {
-          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la placa: 3 letras y 3 números. Ej: ABC123')]));
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la placa: 3 letras y 3 números. Ej: ABC123')], 'No te entendí 🙈'));
         }
         return pedirSiguienteDato(avanzar({ ...s, placa: valida }));
       }
       case 'modelo': {
         const { resto } = separarPlaca(mensaje);
         if (!normalizar(resto) || NO_ES_NOMBRE.has(normalizar(resto))) {
-          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la marca y el modelo. Ej: Mazda 3 2018')]));
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme la marca y el modelo. Ej: Mazda 3 2018')], 'No te entendí 🙈'));
         }
         return pedirSiguienteDato(avanzar({ ...s, vehiculo: resto.slice(0, 120) }));
       }
       case 'telefono': {
         const telefono = telefonoValido(mensaje);
         if (!telefono) {
-          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el celular con sus 10 dígitos. Ej: 300 123 4567')]));
+          return noEntendi(s, (x) => esperar(x, [mostrarTexto('Escríbeme el celular con sus 10 dígitos. Ej: 300 123 4567')], 'No te entendí 🙈'));
         }
         return reservar(avanzar({ ...s, telefono }));
       }

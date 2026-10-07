@@ -4,30 +4,29 @@
 const config = require('../config');
 const { fechaLarga, horaCorta } = require('./fechas');
 
-// Kommo rechaza una respuesta sin instrucciones; cuando no hay nada que mostrar por esta vía
-// se manda una que el cliente no ve: la etiqueta "agenda-bot" en el lead.
-const ETIQUETA_SILENCIOSA = { handler: 'action', params: { name: 'set_tag', params: { type: 2, value: 'agenda-bot' } } };
+// Desde la app Kommo solo acepta instrucciones "show" (mostrar un mensaje), y siempre al menos una.
+const mostrar = (value) => ({ handler: 'show', params: { type: 'text', value } });
 const RELLENO_BOTONES = ['Hablar con asesor', 'Otro día'];
 
-// Cuando hay que esperar al cliente, la pregunta NO se manda desde la app: va en los datos
-// ({{json.texto}}, {{json.b1}}, {{json.b2}}, {{json.b3}}) para que la envíe un bloque Mensaje de Kommo,
-// que es el que sí espera la respuesta. estado = "botones" (3 botones) o "texto" (respuesta escrita).
-// Las respuestas finales (cita agendada, pasar a asesor) sí se mandan directo.
+// Cuando hay que esperar al cliente, la app manda un mensaje corto de confirmación ("Perfecto, el jueves 8 👍")
+// y la pregunta va en los datos ({{json.texto}}, {{json.b1}}, {{json.b2}}, {{json.b3}}) para que la envíe
+// un bloque Mensaje de Kommo, que es el que sí espera la respuesta.
+// estado = "botones" (3 botones) o "texto" (respuesta escrita). Las respuestas finales se mandan directo.
 function paraKommo(r) {
   if (r.data.estado !== 'esperar') {
-    return { data: r.data, handlers: r.handlers.length ? r.handlers : [ETIQUETA_SILENCIOSA] };
+    return { data: r.data, handlers: r.handlers.length ? r.handlers : [mostrar('Un asesor te escribe en un momento 🙌')] };
   }
-  const textos = r.handlers.filter((h) => h.handler === 'show').map((h) => h.params.value);
-  const conBotones = r.handlers.find((h) => h.params && h.params.type === 'buttons');
-  const datos = { ...r.data, texto: textos.join('\n\n') };
-  if (conBotones) {
-    const botones = [...conBotones.params.buttons];
+  const pregunta = r.handlers[r.handlers.length - 1];
+  const antes = r.handlers.slice(0, -1);
+  const datos = { ...r.data, texto: pregunta.params.value };
+  if (pregunta.params.type === 'buttons') {
+    const botones = [...pregunta.params.buttons];
     for (const extra of RELLENO_BOTONES) if (botones.length < 3 && !botones.includes(extra)) botones.push(extra);
     Object.assign(datos, { estado: 'botones', b1: botones[0], b2: botones[1], b3: botones[2] });
   } else {
     datos.estado = 'texto';
   }
-  return { data: datos, handlers: [ETIQUETA_SILENCIOSA] };
+  return { data: datos, handlers: [mostrar(r.acuse || '👇'), ...antes] };
 }
 
 function crearAtencion({ bot, conversaciones, kommo }) {
