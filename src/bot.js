@@ -303,7 +303,8 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       const { mensajeInicial, ...resto } = s;
       s = resto;
       if (mensajeInicial && normalizar(mensaje) === normalizar(mensajeInicial)) {
-        return { estado: 'esperar', siguiente: s, handlers: [], data: { estado: 'esperar', paso: s.paso } };
+        // Se repite la misma pregunta de días, sin contarlo como "no te entendí".
+        return ofrecerDias(s);
       }
     }
     if (quiereAsesor(mensaje)) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');

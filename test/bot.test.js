@@ -80,8 +80,9 @@ test('ignora una sola vez el mensaje que arrancó el paso', () => {
   // Kommo reenvía "prueba agenda" como primera respuesta: no se contesta nada y se sigue esperando el día.
   const r2 = bot.responder({ estado: r1.siguiente, mensaje: 'Prueba agenda' });
   assert.equal(r2.estado, 'esperar');
-  assert.deepEqual(r2.handlers, []);
+  assert.equal(r2.handlers[0].params.value, '¿Qué día te queda bien para la revisión? Toca una opción 👇');
   assert.equal(r2.siguiente.paso, 'dia');
+  assert.equal(r2.siguiente.fallos || 0, 0);
   assert.ok(!('mensajeInicial' in r2.siguiente));
   // Si lo vuelve a escribir, ya se toma como respuesta.
   const r3 = bot.responder({ estado: r2.siguiente, mensaje: 'prueba agenda' });
@@ -258,8 +259,15 @@ test('atención completa con Kommo simulado: guarda el paso, responde y deja not
     await atender({ data: { lead: '77', inicio: 'no', mensaje }, return_url: url });
   }
 
-  assert.deepEqual(enviados.map((e) => e.data.estado), ['esperar', 'esperar', 'esperar', 'esperar', 'listo']);
-  assert.match(enviados[0].execute_handlers[0].params.value, /sincronización/);
+  // Días y horas van con 3 botones; nombre y vehículo son respuesta escrita.
+  assert.deepEqual(enviados.map((e) => e.data.estado), ['botones', 'botones', 'texto', 'texto', 'listo']);
+  assert.match(enviados[0].data.texto, /sincronización/);
+  assert.equal(enviados[0].data.b3, 'Otra fecha');
+  assert.equal(enviados[2].data.texto, '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊');
+  // Mientras espera, la app no le escribe al cliente: eso lo hace el bloque Mensaje de Kommo.
+  for (const e of enviados.slice(0, 4)) assert.equal(e.execute_handlers[0].params.name, 'set_tag');
+  // La confirmación final sí se manda directo.
+  assert.match(enviados[4].execute_handlers[0].params.value, /Listo, Ana!/);
   assert.equal(conversaciones.leer('77'), null);
   assert.equal(notas.length, 1);
   assert.match(notas[0].texto, /Sincronización, viernes 9 de octubre a las 8:30 a\. m\..*JKL456/);
@@ -287,7 +295,18 @@ test('si algo falla, Kommo igual recibe respuesta y pasa al asesor', async () =>
   for (const e of enviados) assert.equal(e.execute_handlers[0].params.name, 'set_tag');
 });
 
-test('cuando Kommo reenvía el mensaje inicial, responde sin escribirle al cliente', async () => {
+test('completa a 3 botones cuando hay menos opciones', () => {
+  const { paraKommo } = require('../src/atencion');
+  const r = {
+    data: { estado: 'esperar', paso: 'hora' },
+    handlers: [{ handler: 'show', params: { type: 'buttons', value: '¿A qué hora?', buttons: ['3:30 p. m.', 'Otro día'] } }],
+  };
+  assert.deepEqual(paraKommo(r).data, {
+    estado: 'botones', paso: 'hora', texto: '¿A qué hora?', b1: '3:30 p. m.', b2: 'Otro día', b3: 'Hablar con asesor',
+  });
+});
+
+test('cuando Kommo reenvía el mensaje inicial, repite la pregunta sin escribirle aparte al cliente', async () => {
   const enviados = [];
   const kommo = { contactoDelLead: async () => ({}), continuar: async (u, c) => enviados.push(c), nota: async () => {} };
   const atender = crearAtencion({ bot, conversaciones: crearConversaciones(db), kommo });
@@ -299,7 +318,8 @@ test('cuando Kommo reenvía el mensaje inicial, responde sin escribirle al clien
   } finally {
     console.log = log;
   }
-  assert.equal(enviados[1].data.estado, 'esperar');
+  assert.equal(enviados[1].data.estado, 'botones');
+  assert.equal(enviados[1].data.texto, enviados[0].data.texto);
   assert.deepEqual(enviados[1].execute_handlers, [
     { handler: 'action', params: { name: 'set_tag', params: { type: 2, value: 'agenda-bot' } } },
   ]);

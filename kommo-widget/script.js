@@ -1,10 +1,10 @@
 // Paso "Agendar cita" para el Salesbot de Kommo.
-// Cada vez que el bot pasa por este paso, le pregunta UNA vez a la agenda del taller qué mostrar.
-// La espera de la respuesta del cliente la hace un bloque normal de Kommo ("Pausa: hasta recibir mensaje")
-// conectado a la salida "Esperar respuesta", que luego vuelve a un paso Agendar cita con Paso = seguir.
-//
-//   Agendar cita (inicio) ─ Esperar respuesta ─► Pausa ─► Agendar cita (seguir) ─ Esperar respuesta ─► (misma Pausa)
-//        │ Cita agendada / Pasar a asesor                     │ Cita agendada / Pasar a asesor
+// Cada vez que el bot pasa por este paso, le pregunta UNA vez a la agenda del taller qué sigue.
+// Cuando hay que preguntarle algo al cliente, la agenda NO lo manda: deja el texto y los botones en
+// {{json.texto}}, {{json.b1}}, {{json.b2}}, {{json.b3}} y sale por:
+//   - "Preguntar con botones": a un bloque Mensaje con esos 3 botones (espera la respuesta).
+//   - "Preguntar por escrito": a un bloque Mensaje con {{json.texto}} (espera la respuesta).
+// La respuesta del cliente (cualquiera) vuelve a un paso Agendar cita con Paso = seguir.
 define([], function () {
   return function () {
     var self = this;
@@ -38,7 +38,8 @@ define([], function () {
       salesbotDesignerSettings: function () {
         return {
           exits: [
-            { code: 'esperar', title: 'Esperar respuesta' },
+            { code: 'botones', title: 'Preguntar con botones' },
+            { code: 'texto', title: 'Preguntar por escrito' },
             { code: 'listo', title: 'Cita agendada' },
             { code: 'asesor', title: 'Pasar a asesor' }
           ]
@@ -65,7 +66,8 @@ define([], function () {
           },
           {
             question: [
-              siEstado('esperar', 'esperar'),
+              siEstado('botones', 'botones'),
+              siEstado('texto', 'texto'),
               siEstado('listo', 'listo'),
               { handler: 'exits', params: { value: 'asesor' } }
             ],
