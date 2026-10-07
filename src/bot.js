@@ -7,13 +7,17 @@
 
 const config = require('../config');
 const { ErrorAgenda, normalizarTelefono } = require('./agenda');
-const { ahora, sumarDias, diaSemana, fechaLarga, horaCorta, MESES } = require('./fechas');
+const { ahora, sumarDias, diaSemana, diasEntre, fechaLarga, horaCorta, MESES } = require('./fechas');
 
 const MAX_TEXTO = 80;
 const MAX_BOTON = 20;
-const DIAS_A_OFRECER = 6;
 const MAX_INTENTOS = 3;
-const OTRO_DIA = 'Ver otros días';
+// WhatsApp muestra hasta 3 botones por mensaje: 2 sugerencias + "otra".
+const DIAS_A_EVALUAR = 5; // de los próximos 5 días con cupo se sugieren los 2 con menos citas
+const DIAS_EN_VENTANA = 31; // para reconocer un día escrito a mano
+const OTRA_FECHA = 'Otra fecha';
+const OTRA_HORA = 'Otra hora';
+const OTRO_DIA = 'Otro día';
 const DIAS_LARGOS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
@@ -67,13 +71,23 @@ function elegirDia(mensaje, dias, hoy) {
   const diaSem = NOMBRES_DIA.findIndex((n) => new RegExp(`\\b${n}\\b`).test(t));
   const numero = t.match(/\b([0-3]?\d)\b/);
   if (diaSem < 0 && !numero) return null;
-  const porFecha = dias.find(
-    (d) => (diaSem < 0 || diaSemana(d.fecha) === diaSem) && (!numero || Number(d.fecha.slice(8)) === Number(numero[1]))
+  return (
+    dias.find(
+      (d) => (diaSem < 0 || diaSemana(d.fecha) === diaSem) && (!numero || Number(d.fecha.slice(8)) === Number(numero[1]))
+    ) || null
   );
-  if (porFecha) return porFecha;
-  // Respondió solo con el número de la opción ("2" = segunda de la lista).
-  if (diaSem < 0 && t === numero[1] && Number(t) >= 1 && Number(t) <= dias.length) return dias[Number(t) - 1];
-  return null;
+}
+
+// "8:30, 9:30, 10:30 am · 2:30, 3:30 pm"
+function listaHoras(horas) {
+  const am = horas.filter((h) => Number(h.slice(0, 2)) < 12).map((h) => h.replace(/^0/, ''));
+  const pm = horas
+    .filter((h) => Number(h.slice(0, 2)) >= 12)
+    .map((h) => {
+      const [hh, mm] = h.split(':').map(Number);
+      return `${hh % 12 === 0 ? 12 : hh % 12}:${String(mm).padStart(2, '0')}`;
+    });
+  return [am.length ? `${am.join(', ')} am` : '', pm.length ? `${pm.join(', ')} pm` : ''].filter(Boolean).join(' · ');
 }
 
 function elegirHora(mensaje, horas) {
@@ -152,25 +166,54 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
   }
   const avanzar = (s) => ({ ...s, fallos: 0 });
 
-  function ofrecerDias(s, aviso) {
+  // Sugiere 2 días: los que tienen menos citas entre los próximos con cupo (o los más cercanos a "cercaDe").
+  function ofrecerDias(s, aviso, cercaDe) {
     const hoy = ahora(reloj()).fecha;
-    const dias = agenda.diasConCupo(DIAS_A_OFRECER).map(({ fecha }) => ({ fecha, etiqueta: etiquetaDia(fecha, hoy) }));
-    if (!dias.length) {
+    const disponibles = agenda.diasConCupo(DIAS_EN_VENTANA).map(({ fecha }) => ({ fecha, etiqueta: etiquetaDia(fecha, hoy) }));
+    if (!disponibles.length) {
       return asesor('No tengo cupos libres en los próximos días. Un asesor te escribe 🙌', 'sin_cupos');
     }
+    const sugeridos = cercaDe
+      ? [...disponibles].sort(
+          (a, b) => Math.abs(diasEntre(cercaDe, a.fecha)) - Math.abs(diasEntre(cercaDe, b.fecha)) || a.fecha.localeCompare(b.fecha)
+        )
+      : disponibles
+          .slice(0, DIAS_A_EVALUAR)
+          .map((d) => ({ ...d, citas: agenda.dia(d.fecha).totalCitas }))
+          .sort((a, b) => a.citas - b.citas || a.fecha.localeCompare(b.fecha));
+    const elegidos = sugeridos.slice(0, 2).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const botones = elegidos.map((d) => d.etiqueta);
+    if (disponibles.length > elegidos.length) botones.push(OTRA_FECHA);
     const servicio = config.servicios[s.servicio].corto.toLowerCase();
-    const texto = aviso || `¿Qué día te queda bien para la ${servicio}? Toca el botón y elige un día 👇`;
-    return esperar({ ...s, paso: 'dia', dias, fecha: null, hora: null }, [
-      mostrarBotones(texto, dias.map((d) => d.etiqueta)),
-    ]);
+    const texto = aviso || `¿Qué día te queda bien para la ${servicio}? Toca una opción 👇`;
+    return esperar(
+      { ...s, paso: 'dia', dias: disponibles, sugeridos: elegidos.map((d) => d.fecha), fecha: null, hora: null },
+      [mostrarBotones(texto, botones)]
+    );
   }
 
+  const pedirDiaEscrito = (s, aviso) =>
+    esperar({ ...s, paso: 'dia_escrito' }, [mostrarTexto(aviso || 'Escríbeme qué día te queda bien. Ej: viernes 16 o el 20')]);
+
+  // Sugiere 2 horas: las que tienen más cupo libre (a igual cupo, las más temprano).
   function ofrecerHoras(s, aviso) {
-    const horas = agenda.horasLibres(s.fecha).map((h) => h.hora);
-    if (!horas.length) return ofrecerDias(s, 'Ese día ya se llenó 😕 Toca el botón y elige otro día 👇');
-    const texto = aviso || `Horas libres el ${fechaLarga(s.fecha)}. Toca el botón y elige una 👇`;
-    return esperar({ ...s, paso: 'hora', horas }, [mostrarBotones(texto, [...horas.map(horaCorta), OTRO_DIA])]);
+    const libres = agenda.horasLibres(s.fecha);
+    if (!libres.length) return ofrecerDias(s, 'Ese día ya se llenó 😕 Toca otra opción 👇');
+    const elegidas = [...libres]
+      .sort((a, b) => b.libres - a.libres || a.hora.localeCompare(b.hora))
+      .slice(0, 2)
+      .map((h) => h.hora)
+      .sort();
+    const botones = [...elegidas.map(horaCorta), libres.length > elegidas.length ? OTRA_HORA : OTRO_DIA];
+    const texto = aviso || `¿A qué hora el ${fechaLarga(s.fecha)}? Toca una opción 👇`;
+    return esperar({ ...s, paso: 'hora', horas: libres.map((h) => h.hora) }, [mostrarBotones(texto, botones)]);
   }
+
+  const pedirHoraEscrita = (s, aviso) =>
+    esperar({ ...s, paso: 'hora_escrita' }, [
+      mostrarTexto(aviso || 'Escríbeme la hora que prefieres. Ej: 10:30 👇'),
+      mostrarTexto(`Horas libres: ${listaHoras(s.horas)}`),
+    ]);
 
   const pedirNombre = (s) => esperar({ ...s, paso: 'nombre' }, [mostrarTexto('¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊')]);
   const pedirVehiculo = (s) =>
@@ -234,7 +277,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         ]);
       }
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕 Toca el botón y elige otra 👇');
+        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕 Toca otra opción 👇');
       }
       return asesor('Tuve un problema agendando. Un asesor te escribe 🙌', err.codigo);
     }
@@ -264,21 +307,46 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
       }
     }
     if (quiereAsesor(mensaje)) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');
-    if (s.paso !== 'dia' && quiereOtroDia(mensaje)) return ofrecerDias(avanzar(s));
+    if (!['dia', 'dia_escrito'].includes(s.paso) && quiereOtroDia(mensaje)) return ofrecerDias(avanzar(s));
 
     switch (s.paso) {
       case 'dia': {
-        const dia = elegirDia(mensaje, s.dias, ahora(reloj()).fecha);
-        if (!dia) {
-          return noEntendi(s, (x) => ofrecerDias(x, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇'));
+        const t = normalizar(mensaje);
+        if (t.startsWith(normalizar(OTRA_FECHA)) || quiereOtroDia(mensaje)) return pedirDiaEscrito(avanzar(s));
+        // Respondió con el número de la opción ("2" = segundo botón), si no es un día del mes de la lista.
+        if (/^[1-3]$/.test(t) && !s.dias.some((d) => Number(d.fecha.slice(8)) === Number(t))) {
+          const fecha = (s.sugeridos || [])[Number(t) - 1];
+          if (fecha) return ofrecerHoras(avanzar({ ...s, fecha }));
+          return pedirDiaEscrito(avanzar(s));
         }
+        // Acepta el botón o cualquier día con cupo escrito a mano ("el jueves", "mañana", "el 14").
+        const dia = elegirDia(mensaje, s.dias, ahora(reloj()).fecha);
+        if (!dia) return noEntendi(s, (x) => ofrecerDias(x, 'No te entendí 🙈 Toca una de las opciones 👇'));
         return ofrecerHoras(avanzar({ ...s, fecha: dia.fecha }));
       }
+      case 'dia_escrito': {
+        const hoy = ahora(reloj()).fecha;
+        const dia = elegirDia(mensaje, s.dias, hoy);
+        if (dia) return ofrecerHoras(avanzar({ ...s, fecha: dia.fecha }));
+        // ¿Pidió un día que existe pero no tiene cupo (domingo, festivo, lleno, muy lejos)? Ofrece los más cercanos.
+        const calendario = Array.from({ length: DIAS_EN_VENTANA + 1 }, (_, i) => {
+          const fecha = sumarDias(hoy, i);
+          return { fecha, etiqueta: etiquetaDia(fecha, hoy) };
+        });
+        const pedido = elegirDia(mensaje, calendario, hoy);
+        if (pedido) return ofrecerDias(avanzar(s), 'Ese día no tengo cupo 😕 Te propongo estos. Toca una opción 👇', pedido.fecha);
+        return noEntendi(s, (x) => pedirDiaEscrito(x, 'No te entendí 🙈 Escríbeme el día. Ej: viernes 16 o el 20'));
+      }
       case 'hora': {
+        if (normalizar(mensaje).startsWith(normalizar(OTRA_HORA))) return pedirHoraEscrita(avanzar(s));
+        // Acepta el botón o cualquier hora libre escrita a mano ("10:30", "a las 2").
         const hora = elegirHora(mensaje, s.horas);
-        if (!hora) {
-          return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈 Toca el botón de abajo y elige una hora 👇'));
-        }
+        if (!hora) return noEntendi(s, (x) => ofrecerHoras(x, 'No te entendí 🙈 Toca una de las opciones 👇'));
+        return pedirNombre(avanzar({ ...s, hora }));
+      }
+      case 'hora_escrita': {
+        const hora = elegirHora(mensaje, s.horas);
+        if (!hora) return noEntendi(s, (x) => pedirHoraEscrita(x, 'No te entendí 🙈 Escríbeme la hora. Ej: 10:30 👇'));
         return pedirNombre(avanzar({ ...s, hora }));
       }
       case 'nombre': {
@@ -327,4 +395,4 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
   return { responder };
 }
 
-module.exports = { crearBot, elegirDia, elegirHora, etiquetaDia, separarPlaca, limpiarNombre, MAX_TEXTO };
+module.exports = { crearBot, elegirDia, elegirHora, etiquetaDia, listaHoras, separarPlaca, limpiarNombre, MAX_TEXTO };

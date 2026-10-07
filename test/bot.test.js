@@ -33,6 +33,7 @@ function revisarLimites(r) {
   for (const h of r.handlers) {
     assert.ok([...h.params.value].length <= MAX_TEXTO, `texto de más de 80: ${h.params.value}`);
     for (const b of h.params.buttons || []) assert.ok([...b].length <= 20, `botón de más de 20: ${b}`);
+    assert.ok((h.params.buttons || []).length <= 3, 'WhatsApp muestra máximo 3 botones por mensaje');
   }
   assert.ok(r.handlers.length <= 10);
 }
@@ -55,12 +56,10 @@ test('agenda una cita completa desde WhatsApp', () => {
   );
 
   assert.equal(dias.estado, 'esperar');
-  assert.equal(dias.handlers[0].params.value, '¿Qué día te queda bien para la revisión? Toca el botón y elige un día 👇');
-  assert.deepEqual(dias.handlers[0].params.buttons, [
-    'Hoy, martes 6', 'Mañana, miércoles 7', 'Jueves 8', 'Viernes 9', 'Sábado 10', 'Martes 13',
-  ]);
-  assert.equal(horas.handlers[0].params.value, 'Horas libres el miércoles 7 de octubre. Toca el botón y elige una 👇');
-  assert.equal(horas.handlers[0].params.buttons.at(-1), 'Ver otros días');
+  assert.equal(dias.handlers[0].params.value, '¿Qué día te queda bien para la revisión? Toca una opción 👇');
+  assert.deepEqual(dias.handlers[0].params.buttons, ['Hoy, martes 6', 'Mañana, miércoles 7', 'Otra fecha']);
+  assert.equal(horas.handlers[0].params.value, '¿A qué hora el miércoles 7 de octubre? Toca una opción 👇');
+  assert.deepEqual(horas.handlers[0].params.buttons, ['8:30 a. m.', '9:30 a. m.', 'Otra hora']);
   assert.equal(nombre.handlers[0].params.value, '¿A nombre de quién agendo la cita? Escríbeme tu nombre 😊');
   assert.match(vehiculo.handlers[0].params.value, /vehículo/);
 
@@ -86,7 +85,7 @@ test('ignora una sola vez el mensaje que arrancó el paso', () => {
   assert.ok(!('mensajeInicial' in r2.siguiente));
   // Si lo vuelve a escribir, ya se toma como respuesta.
   const r3 = bot.responder({ estado: r2.siguiente, mensaje: 'prueba agenda' });
-  assert.equal(r3.handlers[0].params.value, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇');
+  assert.equal(r3.handlers[0].params.value, 'No te entendí 🙈 Toca una de las opciones 👇');
   // Si la primera respuesta es distinta, se procesa normal.
   const r4 = bot.responder({ estado: r1.siguiente, mensaje: 'Jue 8 oct' });
   assert.equal(r4.siguiente.paso, 'hora');
@@ -131,15 +130,15 @@ test('separa placa, vehículo y nombre', () => {
 
 test('si la hora se ocupa mientras el cliente elige, ofrece otra', () => {
   const [, horas, nombre, vehiculo] = charla(['Mié 7 oct', '10:30', 'Ana']);
-  assert.ok(horas.handlers[0].params.buttons.includes('10:30 a. m.'));
+  assert.ok(horas.siguiente.horas.includes('10:30'));
   // Mientras tanto, dos clientes toman las 10:30 a mano.
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-07', hora: '10:30', cliente: 'X', telefono: '3000000001' });
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-07', hora: '10:30', cliente: 'Y', telefono: '3000000002' });
   const r = bot.responder({ estado: { ...vehiculo.siguiente, telefono: '573001112233' }, mensaje: 'Kia Picanto ABC123' });
   assert.equal(r.estado, 'esperar');
   assert.equal(r.siguiente.paso, 'hora');
-  assert.equal(r.handlers[0].params.value, 'Esa hora se acaba de ocupar 😕 Toca el botón y elige otra 👇');
-  assert.ok(!r.handlers[0].params.buttons.includes('10:30 a. m.'));
+  assert.equal(r.handlers[0].params.value, 'Esa hora se acaba de ocupar 😕 Toca otra opción 👇');
+  assert.ok(!r.siguiente.horas.includes('10:30'));
   assert.equal(nombre.siguiente.hora, '10:30');
 });
 
@@ -156,7 +155,7 @@ test('pide la placa y el celular cuando faltan', () => {
 
 test('vuelve a preguntar si no entiende, permite cambiar de día y pasar a asesor', () => {
   const [, noEntendio] = charla(['cuando puedan']);
-  assert.equal(noEntendio.handlers[0].params.value, 'No te entendí 🙈 Toca el botón de abajo y elige un día de la lista 👇');
+  assert.equal(noEntendio.handlers[0].params.value, 'No te entendí 🙈 Toca una de las opciones 👇');
   assert.equal(noEntendio.siguiente.paso, 'dia');
 
   const [, , otroDia] = charla(['Vie 9 oct', 'Ver otros días']);
@@ -169,6 +168,42 @@ test('vuelve a preguntar si no entiende, permite cambiar de día y pasar a aseso
   const [, , asesor] = charla(['Vie 9 oct', 'mejor quiero hablar con un asesor']);
   assert.equal(asesor.estado, 'asesor');
   assert.equal(asesor.data.estado, 'asesor');
+});
+
+test('sugiere los 2 días con menos citas y las 2 horas con más cupo', () => {
+  const citaEn = (fecha, hora, cliente) => agenda.reservar({ servicio: 'REVISION', fecha, hora, cliente, telefono: '3000000000' });
+  citaEn('2026-10-06', '10:30', 'A');
+  citaEn('2026-10-07', '08:30', 'B');
+  citaEn('2026-10-07', '09:30', 'C');
+  citaEn('2026-10-08', '08:30', 'D');
+  // Citas: mar 6 → 1, mié 7 → 2, jue 8 → 1, vie 9 → 0, sáb 10 → 0. Se sugieren viernes y sábado.
+  const [dias, horas] = charla(['Jueves 8']);
+  assert.deepEqual(dias.handlers[0].params.buttons, ['Viernes 9', 'Sábado 10', 'Otra fecha']);
+  // El jueves 8 a las 8:30 ya tiene 1 de 2: se sugieren 9:30 y 10:30, que están vacías.
+  assert.deepEqual(horas.handlers[0].params.buttons, ['9:30 a. m.', '10:30 a. m.', 'Otra hora']);
+});
+
+test('"Otra fecha" y "Otra hora" dejan escribir el día y la hora', () => {
+  const [, escribir, porEscrito] = charla(['Otra fecha', 'el miércoles 14']);
+  assert.equal(escribir.handlers[0].params.value, 'Escríbeme qué día te queda bien. Ej: viernes 16 o el 20');
+  assert.equal(porEscrito.siguiente.fecha, '2026-10-14');
+
+  // Un día sin cupo (domingo 11) propone los más cercanos con cupo.
+  const [, , domingo] = charla(['Otra fecha', 'el domingo']);
+  assert.match(domingo.handlers[0].params.value, /Ese día no tengo cupo/);
+  assert.deepEqual(domingo.handlers[0].params.buttons, ['Viernes 9', 'Sábado 10', 'Otra fecha']);
+
+  const [, , otraHora, horaEscrita] = charla(['Viernes 9', 'Otra hora', '2:30']);
+  assert.equal(otraHora.handlers[0].params.value, 'Escríbeme la hora que prefieres. Ej: 10:30 👇');
+  assert.equal(otraHora.handlers[1].params.value, 'Horas libres: 8:30, 9:30, 10:30, 11:30 am · 12:30, 1:30, 2:30, 3:30 pm');
+  assert.equal(horaEscrita.siguiente.hora, '14:30');
+  assert.equal(horaEscrita.siguiente.paso, 'nombre');
+
+  // Responder "2" elige el segundo botón; "3" es "Otra fecha".
+  const [, segundo] = charla(['2']);
+  assert.equal(segundo.siguiente.fecha, '2026-10-07');
+  const [, tercero] = charla(['3']);
+  assert.equal(tercero.siguiente.paso, 'dia_escrito');
 });
 
 test('nombres de día claros y cortos para los botones', () => {
