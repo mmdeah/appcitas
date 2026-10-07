@@ -3,7 +3,7 @@
     "name": "widget.name",
     "description": "widget.description",
     "short_description": "widget.short_description",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "interface_version": 2,
     "init_once": true,
     "locale": ["es", "en"],
@@ -29,6 +29,12 @@
         "servicio": {
           "name": "salesbot.servicio",
           "default_value": "REVISION",
+          "type": "text",
+          "manual": true
+        },
+        "paso": {
+          "name": "salesbot.paso",
+          "default_value": "inicio",
           "type": "text",
           "manual": true
         }

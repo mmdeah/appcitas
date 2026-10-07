@@ -10,6 +10,7 @@
   },
   "salesbot": {
     "agenda": "Book appointment",
-    "servicio": "Service: REVISION or SINCRONIZACION"
+    "servicio": "Service: REVISION or SINCRONIZACION",
+    "paso": "Step: inicio (first) or seguir (after the pause)"
   }
 }

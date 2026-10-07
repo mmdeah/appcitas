@@ -1,6 +1,10 @@
 // Paso "Agendar cita" para el Salesbot de Kommo.
-// El bot le pregunta a la agenda del taller qué mostrar, espera la respuesta del cliente
-// y repite hasta que la cita queda guardada ("Cita agendada") o hace falta un asesor ("Pasar a asesor").
+// Cada vez que el bot pasa por este paso, le pregunta UNA vez a la agenda del taller qué mostrar.
+// La espera de la respuesta del cliente la hace un bloque normal de Kommo ("Pausa: hasta recibir mensaje")
+// conectado a la salida "Esperar respuesta", que luego vuelve a un paso Agendar cita con Paso = seguir.
+//
+//   Agendar cita (inicio) ─ Esperar respuesta ─► Pausa ─► Agendar cita (seguir) ─ Esperar respuesta ─► (misma Pausa)
+//        │ Cita agendada / Pasar a asesor                     │ Cita agendada / Pasar a asesor
 define([], function () {
   return function () {
     var self = this;
@@ -12,28 +16,13 @@ define([], function () {
       return url || URL_POR_DEFECTO;
     }
 
-    // inicio = 'si' la primera vez (empieza de cero); 'no' en cada respuesta del cliente.
-    function consultarAgenda(inicio, servicio) {
-      return {
-        handler: 'widget_request',
-        params: {
-          url: urlAgenda(),
-          data: { lead: '{{lead.id}}', mensaje: '{{message_text}}', servicio: servicio, inicio: inicio }
-        }
-      };
-    }
-
-    function irA(tipo, paso) {
-      return { handler: 'goto', params: { type: tipo, step: paso } };
-    }
-
-    function siEstado(valor, resultado) {
+    function siEstado(valor, salida) {
       return {
         handler: 'conditions',
         params: {
           logic: 'and',
           conditions: [{ term1: '{{json.estado}}', term2: valor, operation: '=' }],
-          result: [resultado]
+          result: [{ handler: 'exits', params: { value: salida } }]
         }
       };
     }
@@ -49,6 +38,7 @@ define([], function () {
       salesbotDesignerSettings: function () {
         return {
           exits: [
+            { code: 'esperar', title: 'Esperar respuesta' },
             { code: 'listo', title: 'Cita agendada' },
             { code: 'asesor', title: 'Pasar a asesor' }
           ]
@@ -57,20 +47,30 @@ define([], function () {
 
       onSalesbotDesignerSave: function (handler_code, params) {
         var servicio = String((params && params.servicio) || 'REVISION').trim().toUpperCase();
+        var paso = String((params && params.paso) || 'inicio').trim().toLowerCase();
+        var inicio = paso === 'seguir' ? 'no' : 'si';
         return JSON.stringify([
-          // 0: primera consulta a la agenda
-          { question: [consultarAgenda('si', servicio), irA('question', 1)], require: [] },
-          // 1: según lo que respondió la agenda: esperar un mensaje NUEVO del cliente, terminar o pasar a asesor
           {
             question: [
-              siEstado('esperar', { handler: 'wait_answer', params: { type: 'question', step: 2 } }),
-              siEstado('listo', { handler: 'exits', params: { value: 'listo' } }),
-              { handler: 'exits', params: { value: 'asesor' } }
+              {
+                handler: 'widget_request',
+                params: {
+                  url: urlAgenda(),
+                  data: { lead: '{{lead.id}}', mensaje: '{{message_text}}', servicio: servicio, inicio: inicio }
+                }
+              },
+              { handler: 'goto', params: { type: 'question', step: 1 } }
             ],
             require: []
           },
-          // 2: el cliente respondió: se le pasa a la agenda
-          { question: [consultarAgenda('no', servicio), irA('question', 1)], require: [] }
+          {
+            question: [
+              siEstado('esperar', 'esperar'),
+              siEstado('listo', 'listo'),
+              { handler: 'exits', params: { value: 'asesor' } }
+            ],
+            require: []
+          }
         ]);
       }
     };

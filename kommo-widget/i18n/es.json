@@ -10,6 +10,7 @@
   },
   "salesbot": {
     "agenda": "Agendar cita",
-    "servicio": "Servicio: REVISION o SINCRONIZACION"
+    "servicio": "Servicio: REVISION o SINCRONIZACION",
+    "paso": "Paso: inicio (el primero) o seguir (después de la pausa)"
   }
 }
