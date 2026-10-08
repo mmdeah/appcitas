@@ -10,7 +10,7 @@ module.exports = {
 
   // Horas en las que puede EMPEZAR una cita, por día de la semana
   // (0 = domingo, 1 = lunes … 6 = sábado). Un día que no aparece no recibe citas.
-  // "hasta" es la última hora de inicio: 08:30 a 15:30 cada 60 min = 8 horas por día.
+  // "hasta" es la última hora de inicio. Turnos cada 30 min (8:30, 9:00, 9:30…).
   horario: {
     1: { desde: '08:30', hasta: '15:30' },
     2: { desde: '08:30', hasta: '15:30' },
@@ -19,9 +19,9 @@ module.exports = {
     5: { desde: '08:30', hasta: '15:30' },
     6: { desde: '08:30', hasta: '15:30' },
   },
-  intervaloMinutos: 60,
+  intervaloMinutos: 30,
 
-  // Cuántos vehículos se pueden recibir en la misma hora.
+  // Cuántos vehículos se pueden recibir dentro de la misma hora (9:00 y 9:30 cuentan juntos).
   capacidadPorHora: 2,
 
   // Límites para lo que agenda el bot (las citas que pones tú a mano no los usan).

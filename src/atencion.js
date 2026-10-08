@@ -18,6 +18,8 @@ function paraKommo(r) {
   if (r.data.estado !== 'esperar') {
     return { data: r.data, handlers: r.handlers.length ? r.handlers : [mostrar('Un asesor te escribe en un momento 🙌')] };
   }
+  // Un solo mensaje (la pregunta ya viene completa en el acuse): se manda tal cual.
+  if (!r.handlers.length) return { data: { ...r.data, estado: 'texto' }, handlers: [mostrar(r.acuse || '👇')] };
   const pregunta = r.handlers[r.handlers.length - 1];
   const antes = r.handlers.slice(0, -1).map((h) => mostrar(h.params.value));
   const acuse = r.acuse || '👇';

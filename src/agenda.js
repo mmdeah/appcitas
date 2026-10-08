@@ -25,7 +25,8 @@ const textoOpcional = (valor, max) => String(valor || '').trim().slice(0, max) |
 function crearAgenda(db, cfg = config, reloj = () => new Date()) {
   const sql = {
     citasDelDia: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado <> 'CANCELADA' ORDER BY hora, puesto`),
-    puestosOcupados: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND hora = ? AND estado <> 'CANCELADA'`),
+    // Cupo por bloque de una hora: 9:00 y 9:30 comparten los mismos puestos.
+    puestosOcupados: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND substr(hora, 1, 2) = ? AND estado <> 'CANCELADA'`),
     cita: db.prepare(`SELECT * FROM citas WHERE id = ?`),
     insertar: db.prepare(`
       INSERT INTO citas (servicio, fecha, hora, puesto, cliente, telefono, vehiculo, placa, notas, origen, kommo_lead)
@@ -54,6 +55,9 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     return null;
   }
 
+  // Bloque de una hora al que pertenece un turno ("09:30" → "09"). La capacidad es por bloque.
+  const bloque = (hora) => hora.slice(0, 2);
+
   // Minutos que faltan desde "ahora" hasta esa fecha y hora (negativo si ya pasó).
   const minutosHasta = (fecha, hora, momento) =>
     diasEntre(momento.fecha, fecha) * 1440 + aMinutos(hora) - aMinutos(momento.hora);
@@ -80,14 +84,15 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
       esHoy: fecha === momento.fecha,
       pasado: fecha < momento.fecha,
       totalCitas: citas.length,
-      cupos: cierre ? 0 : deAtencion.length * cfg.capacidadPorHora,
+      cupos: cierre ? 0 : new Set(deAtencion.map(bloque)).size * cfg.capacidadPorHora,
       horas: horas.map((hora) => {
         const citasDeLaHora = citas.filter((c) => c.hora === hora);
+        const citasDelBloque = citas.filter((c) => bloque(c.hora) === bloque(hora));
         const bloqueo = bloqueos.find((b) => b.hora === hora) || null;
         const enHorario = deAtencion.includes(hora);
         const pasada = minutosHasta(fecha, hora, momento) < 0;
         const libres =
-          cierre || bloqueo || !enHorario || pasada ? 0 : Math.max(0, cfg.capacidadPorHora - citasDeLaHora.length);
+          cierre || bloqueo || !enHorario || pasada ? 0 : Math.max(0, cfg.capacidadPorHora - citasDelBloque.length);
         return { hora, citas: citasDeLaHora, bloqueo, enHorario, pasada, libres };
       }),
     };
@@ -150,7 +155,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     const c = validar(datos);
     db.exec('BEGIN IMMEDIATE');
     try {
-      const ocupados = sql.puestosOcupados.all(c.fecha, c.hora).map((r) => r.puesto);
+      const ocupados = sql.puestosOcupados.all(c.fecha, bloque(c.hora)).map((r) => r.puesto);
       if (!forzar) {
         const d = dia(c.fecha);
         const h = d.horas.find((x) => x.hora === c.hora);

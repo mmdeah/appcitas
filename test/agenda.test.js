@@ -140,6 +140,24 @@ test('la copia de respaldo incluye citas canceladas y bloqueos', () => {
   assert.equal(copia.bloqueos.length, 1);
 });
 
+test('turnos cada 30 minutos: 9:00 y 9:30 comparten los 2 cupos de esa hora', () => {
+  const media = crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj);
+  const d = media.dia('2026-10-07');
+  assert.equal(d.horas.length, 15); // 8:30 a 15:30 cada 30 min
+  assert.equal(d.cupos, 16); // 8 bloques de hora × 2
+  media.reservar(cliente({ hora: '09:00' }));
+  media.reservar(cliente({ hora: '09:30', cliente: 'Ana' }));
+  assert.throws(() => media.reservar(cliente({ hora: '09:00', cliente: 'Luis' })), { codigo: 'LLENO' });
+  assert.throws(() => media.reservar(cliente({ hora: '09:30', cliente: 'Luis' })), { codigo: 'LLENO' });
+  const horas = media.horasLibres('2026-10-07').map((h) => h.hora);
+  assert.ok(!horas.includes('09:00') && !horas.includes('09:30'));
+  assert.ok(horas.includes('10:00') && horas.includes('08:30'));
+  // La base de datos tampoco deja dos citas activas con el mismo puesto en la misma hora.
+  assert.throws(() =>
+    db.prepare(`INSERT INTO citas (servicio, fecha, hora, puesto, cliente, telefono) VALUES ('REVISION', '2026-10-07', '09:00', 2, 'X', '573000000000')`).run()
+  );
+});
+
 test('una cita fuera de horario agendada a mano aparece en el día', () => {
   agenda.reservar(cliente({ hora: '17:00' }), { forzar: true });
   const h = agenda.dia('2026-10-07').horas.find((x) => x.hora === '17:00');

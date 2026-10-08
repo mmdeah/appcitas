@@ -69,17 +69,15 @@ test('sin IA: toma lo que entiende y pregunta lo que falta hasta confirmar y gua
     'Chevrolet Spark 2015',
     'sí',
   ]);
-  assert.deepEqual(textos(primero), ['Anotado ✍️', '¿A nombre de quién agendo la cita?', 'Y también el vehículo (marca, modelo y año).']);
+  assert.deepEqual(textos(primero), ['Perfecto 👍 ¿Me dices tu nombre y el vehículo (marca, modelo y año)?']);
   assert.equal(primero.siguiente.datos.fecha, '2026-10-08');
   assert.equal(primero.siguiente.datos.hora, '10:30');
-  assert.deepEqual(textos(nombre), ['Gracias, Juan 🙌', '¿Qué vehículo es? Ej: Mazda 3 2018']);
+  assert.deepEqual(textos(nombre), ['Gracias, Juan 🙌 ¿Qué vehículo es? Ej: Mazda 3 2018']);
   assert.equal(nombre.siguiente.datos.nombre, 'Juan Pérez');
+  // El resumen va en 3 mensajes (antes eran 6).
   assert.deepEqual(textos(vehiculo), [
-    'Te agendo así 👇',
-    '🔧 Revisión General Preventiva',
-    '📅 Jueves 8 de octubre, 10:30 a. m.',
-    '🚗 Chevrolet Spark 2015 · ABC123',
-    '👤 Juan Pérez',
+    'Te agendo así 👇\n🔧 Revisión General Preventiva\n📅 Jueves 8 de octubre, 10:30 a. m.',
+    '🚗 Chevrolet Spark 2015 · ABC123\n👤 Juan Pérez',
     '¿Confirmo la cita? Responde SÍ o dime qué cambio ✍️',
   ]);
   assert.equal(confirmar.estado, 'listo');
@@ -88,6 +86,24 @@ test('sin IA: toma lo que entiende y pregunta lo que falta hasta confirmar y gua
     [c.fecha, c.hora, c.cliente, c.vehiculo, c.placa, c.telefono, c.origen, c.kommo_lead],
     ['2026-10-08', '10:30', 'Juan Pérez', 'Chevrolet Spark 2015', 'ABC123', '573001234567', 'BOT', '55']
   );
+});
+
+test('la conversación real: datos en líneas y "mañana 10 am" van directo al resumen', async () => {
+  const media = crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj);
+  const libre = crearConversacionLibre(media, { reloj });
+  const [resumen, listo] = await charla(libre, ['David Perlaza\nNissan Tiida\nABC133\nMañana 10 am', 'Si']);
+  assert.equal(resumen.siguiente.confirmando, true);
+  assert.deepEqual(
+    [resumen.siguiente.datos.nombre, resumen.siguiente.datos.vehiculo, resumen.siguiente.datos.placa, resumen.siguiente.datos.fecha, resumen.siguiente.datos.hora],
+    ['David Perlaza', 'Nissan Tiida', 'ABC133', '2026-10-07', '10:00']
+  );
+  assert.equal(listo.estado, 'listo');
+  assert.equal(listo.cita.hora, '10:00');
+
+  // Si le preguntaron nombre y vehículo, los toma de dos líneas aunque traigan el año.
+  const [, ambos] = await charla(libre, ['el viernes a las 9 placa XYZ789', 'David Perlaza\nNissan Versa 2010']);
+  assert.deepEqual([ambos.siguiente.datos.nombre, ambos.siguiente.datos.vehiculo], ['David Perlaza', 'Nissan Versa 2010']);
+  assert.equal(ambos.siguiente.confirmando, true);
 });
 
 test('con IA: un solo mensaje con todo va directo a confirmar', async () => {
@@ -125,11 +141,12 @@ test('hora ocupada o día sin cupo: propone opciones reales', async () => {
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '10:30', cliente: 'Y', telefono: '3000000002' });
   const libre = crearConversacionLibre(agenda, { reloj });
   const [ocupada] = await charla(libre, ['el jueves a las 10:30']);
-  assert.deepEqual(textos(ocupada), ['A las 10:30 a. m. no tengo cupo ese día 😕', 'Tengo libre: 8:30, 9:30, 11:30 am. ¿Cuál prefieres?']);
+  assert.deepEqual(textos(ocupada), ['A las 10:30 a. m. ya no tengo cupo el jueves 8 😕', '¿Te sirve 8:30, 9:30 u 11:30 a. m.?']);
   assert.equal(ocupada.siguiente.preguntando, 'hora');
 
   const [domingo] = await charla(libre, ['el domingo']);
-  assert.equal(textos(domingo)[0], 'El domingo 11 de octubre no tengo cupo 😕');
+  assert.deepEqual(textos(domingo), ['El domingo 11 de octubre no tengo cupo 😕', '¿Te sirve el viernes 9, el sábado 10 o el martes 13?']);
+  assert.equal(domingo.siguiente.preguntando, 'fecha');
   assert.equal(domingo.siguiente.datos.fecha, null);
 });
 

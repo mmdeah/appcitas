@@ -55,6 +55,15 @@ function abrir(archivo = ARCHIVO) {
   const columnas = db.prepare('PRAGMA table_info(citas)').all().map((c) => c.name);
   if (!columnas.includes('kommo_lead')) db.exec('ALTER TABLE citas ADD COLUMN kommo_lead TEXT');
 
+  // Turnos cada 30 min con capacidad por hora: dos citas activas no pueden tener el mismo puesto en la misma hora.
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS citas_sin_cruce_por_hora
+      ON citas (fecha, substr(hora, 1, 2), puesto) WHERE estado <> 'CANCELADA'`);
+  } catch (err) {
+    // Solo pasaría con citas viejas forzadas a mano en la misma hora; la app sigue validando al reservar.
+    console.warn('No pude crear el índice de cupos por hora:', err.message);
+  }
+
   return db;
 }
 
