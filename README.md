@@ -52,6 +52,18 @@ La conversación es: día → hora → nombre → vehículo y placa → (celular
 
 Si algo falla, en los logs de Railway aparece una línea que empieza con `Kommo:`.
 
+### Agendar por texto libre (con IA)
+
+Si el paso **Agendar cita** se pone con **Paso = `seguir`** justo después del mensaje que pide los datos, el cliente responde como quiera ("soy Juan, Spark 2015 ABC123, el jueves a las 10"). La app hace esto:
+
+- Junta los datos.
+- Pregunta solo lo que falta.
+- Revisa la agenda: si la hora o el día no tienen cupo, propone opciones reales.
+- Muestra un resumen y pide "¿Confirmo?".
+- Con un "sí", guarda la cita.
+
+La IA de OpenRouter (`OPENROUTER_API_KEY` y `OPENROUTER_MODEL` en Railway) solo ayuda a leer el mensaje; nunca decide cupos. Sin IA, la app lee con reglas la placa, el día y la hora, y pregunta el resto dato por dato. El JSON del bot principal con este recorrido queda en `dist/bot-principal.json`.
+
 ## Copia de seguridad
 
 Al final del calendario está el enlace **Descargar copia de todas las citas (JSON)**. Descárgala de vez en cuando.

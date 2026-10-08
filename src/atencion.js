@@ -31,7 +31,9 @@ function paraKommo(r) {
   return { data: { ...r.data, estado: 'botones' }, handlers: [...cabeza, ...antes, mostrar(opciones)] };
 }
 
-function crearAtencion({ bot, conversaciones, kommo }) {
+// libre: conversación por texto libre (con IA). Se usa cuando el paso llega con Paso = seguir y no hay
+// conversación guardada (el cliente ya respondió al mensaje de "pedir datos"), o si ya va en ese modo.
+function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
   return async function atender({ data = {}, return_url: direccion }) {
     const lead = String(data.lead || '').replace(/\D/g, '');
     const inicio = String(data.inicio) === 'si';
@@ -48,8 +50,10 @@ function crearAtencion({ bot, conversaciones, kommo }) {
 
     let r;
     try {
+      const usarLibre = libre && ((estado && estado.modo === 'libre') || (!estado && !inicio));
+      const motor = usarLibre ? libre : bot;
       r = lead
-        ? bot.responder({ estado, mensaje: data.mensaje, inicio, servicio: data.servicio, contacto, lead })
+        ? await motor.responder({ estado, mensaje: data.mensaje, inicio, servicio: data.servicio, contacto, lead })
         : { siguiente: null, handlers: [], data: { estado: 'asesor', motivo: 'sin_lead' } };
     } catch (err) {
       // Nunca dejar el bot de Kommo esperando: si algo falla, pasa al asesor.

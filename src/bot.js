@@ -24,6 +24,8 @@ const NOMBRES_DIA = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viern
 const NO_ES_NOMBRE = new Set([
   'si', 'sii', 'siii', 'no', 'ok', 'okey', 'listo', 'dale', 'gracias', 'hola', 'buenas', 'bueno', 'claro',
   'vale', 'perfecto', 'aja', 'bien', 'buenos dias', 'buenas tardes', 'buenas noches', 'quiero agendar',
+  'no se', 'nose', 'ja', 'jaja', 'jajaja', 'jeje', 'jejeje', 'que', 'como', 'cuanto', 'precio', 'hola buenas',
+  'buen dia', 'gracias', 'muchas gracias', 'ya', 'bueno gracias',
 ]);
 
 // Minúsculas, sin tildes ni signos: "Mañana, miércoles 7" → "manana miercoles 7".
@@ -128,7 +130,7 @@ function limpiarNombre(texto) {
     .replace(/^\s*(hola[,!.\s]*)?(me llamo|mi nombre es|soy|a nombre de)\s+/i, '')
     .replace(/[.!]+$/, '')
     .trim();
-  if (nombre.length < 2 || nombre.length > 60 || /\d{4,}|@|https?:/i.test(nombre)) return null;
+  if (nombre.length < 2 || nombre.length > 60 || /\d{4,}|@|https?:|\?/i.test(nombre)) return null;
   if (NO_ES_NOMBRE.has(normalizar(nombre))) return null;
   return nombre;
 }
@@ -422,4 +424,17 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
   return { responder };
 }
 
-module.exports = { crearBot, elegirDia, elegirHora, etiquetaDia, listaHoras, separarPlaca, limpiarNombre, MAX_TEXTO };
+module.exports = {
+  crearBot,
+  elegirDia,
+  elegirHora,
+  etiquetaDia,
+  listaHoras,
+  separarPlaca,
+  limpiarNombre,
+  telefonoValido,
+  normalizar,
+  quiereAsesor,
+  NO_ES_NOMBRE,
+  MAX_TEXTO,
+};
