@@ -62,7 +62,7 @@ Si el paso **Agendar cita** se pone con **Paso = `seguir`** justo después del m
 - Muestra un resumen y pide "¿Confirmo?".
 - Con un "sí", guarda la cita.
 
-La IA de OpenRouter (`OPENROUTER_API_KEY` y `OPENROUTER_MODEL` en Railway) solo ayuda a leer el mensaje; nunca decide cupos. Sin IA, la app lee con reglas la placa, el día y la hora, y pregunta el resto dato por dato. El JSON del bot principal con este recorrido queda en `dist/bot-principal-sin-boton.json` (y `dist/bot-principal-con-boton.json` si Kommo exige un botón para esperar). Ahí la agenda se llama con `widget_request` directo, porque los bloques de widget solo funcionan si se crean en el editor visual.
+La IA de OpenRouter (`OPENROUTER_API_KEY` y `OPENROUTER_MODEL` en Railway) solo ayuda a leer el mensaje; nunca decide cupos. Sin IA, la app lee con reglas la placa, el día y la hora, y pregunta el resto dato por dato. El JSON del bot principal con este recorrido queda en `dist/bot-principal.json`: un solo botón (Quiero agendar), pausa "hasta recibir mensaje" (`waits` con `source: message`) y la agenda se llama con `widget_request` en un paso de código personalizado, porque los bloques de widget solo funcionan si se crean en el editor visual.
 
 ## Copia de seguridad
 
