@@ -114,6 +114,10 @@ test('con IA: lee el mensaje, agenda y la respuesta suena natural sin cambiar lo
   try {
     const [otra] = await charla(crearConversacionLibre(agenda, { ia: { ...tramposa, extraer: async () => ({ nombre: 'Luis', vehiculo: 'Kia Rio', placa: 'QWE123', fecha: '2026-10-09', hora: '14:30' }) }, reloj }), ['hola']);
     assert.match(textos(otra).join(' '), /2:30 p\. m\./);
+    // Si la IA cambia el día, también se usa el texto original.
+    const otroDia = { ...tramposa, redactar: async ({ borrador }) => borrador.replace(/viernes/gi, 'Sábado') };
+    const [dia] = await charla(crearConversacionLibre(agenda, { ia: { ...otroDia, extraer: async () => ({ nombre: 'Eva', vehiculo: 'Kia Rio', placa: 'ASD123', fecha: '2026-10-09', hora: '13:30' }) }, reloj }), ['hola']);
+    assert.match(textos(dia).join(' '), /viernes/i);
   } finally {
     console.warn = aviso;
   }

@@ -63,6 +63,11 @@ function conservaDatos(base, nuevo) {
   if (!nuevo || [...nuevo].length > 500) return false;
   const datos = base.match(/\d{1,2}:\d{2}|\$[\d.]+|\b[A-Z]{3}\d{2}[A-Z0-9]\b|\b\d{1,2}\b/g) || [];
   const limpio = nuevo.replace(/\s+/g, ' ');
+  // Días de la semana y meses también deben quedar iguales.
+  const sinTilde = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const palabras = sinTilde(base).match(/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|hoy|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/g) || [];
+  const nuevoSinTilde = sinTilde(limpio);
+  if (!palabras.every((p) => new RegExp(`\\b${p}\\b`).test(nuevoSinTilde))) return false;
   return datos.every((d) => new RegExp(`(^|[^\\d])${d.replace(/[$.]/g, '\\$&')}([^\\d]|$)`).test(limpio));
 }
 
