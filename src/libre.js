@@ -418,6 +418,10 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
         { servicio: s.servicio, fecha: d.fecha, hora: d.hora, cliente: d.nombre, telefono: d.telefono, vehiculo: d.vehiculo, placa: d.placa, kommoLead: s.lead },
         { origen: 'BOT' }
       );
+      // Si venía de "Reprogramar" en el recordatorio, la cita recordada queda cancelada.
+      for (const vieja of agenda.cancelarOtrasDelLead(cita.kommo_lead, cita.id)) {
+        console.log('Cita reprogramada: cancelo la anterior', { lead: cita.kommo_lead, id: vieja.id, fecha: vieja.fecha, hora: vieja.hora });
+      }
       const servicio = config.servicios[cita.servicio];
       return resultado('listo', null, empacar([
         `✅ ¡Listo, ${cita.cliente.split(/\s+/)[0]}! Agendé tu ${servicio.nombre}.`,

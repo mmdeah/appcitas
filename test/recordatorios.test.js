@@ -39,14 +39,17 @@ test('antes de las 7 a. m. no manda nada', async () => {
   assert.deepEqual(movidos, []);
 });
 
-test('al reprogramar, la cita nueva del mismo lead cancela la anterior', () => {
+test('al reprogramar después del recordatorio, la cita nueva cancela la recordada', () => {
   const { cita, agenda } = preparar(a('07:00'));
   const vieja = cita('2026-10-14', '09:00', '11', '3001110001');
+  const otra = cita('2026-10-20', '09:00', '11', '3001110001'); // sin recordatorio: sigue activa
+  agenda.marcarRecordada(vieja.id);
   const nueva = cita('2026-10-16', '10:00', '11', '3001110001');
   const canceladas = agenda.cancelarOtrasDelLead('11', nueva.id);
   assert.deepEqual(canceladas.map((c) => c.id), [vieja.id]);
   assert.equal(agenda.cita(vieja.id).estado, 'CANCELADA');
   assert.equal(agenda.cita(nueva.id).estado, 'AGENDADA');
+  assert.equal(agenda.cita(otra.id).estado, 'AGENDADA');
 });
 
 test('busca la etapa RECORDATORIO por nombre si no se fijó el número', async () => {
