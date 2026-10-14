@@ -6,7 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { abrir } = require('./db');
 const { crearAgenda, ErrorAgenda, ESTADOS } = require('./agenda');
-const { ahora, esFecha, lunesDe } = require('./fechas');
+const { ahora, esFecha, lunesDe, sumarDias } = require('./fechas');
 const { crearConversaciones } = require('./conversaciones');
 const { crearBot } = require('./bot');
 const { crearKommo, leerCuerpo } = require('./kommo');
@@ -131,7 +131,7 @@ function ir(res, destino, extra = {}) {
 
 const semanaValida = (valor) => (esFecha(valor) ? valor : ahora().fecha);
 const alCalendario = (fecha, aviso) =>
-  `/calendario?semana=${lunesDe(semanaValida(fecha))}${aviso ? `&aviso=${encodeURIComponent(aviso)}` : ''}${fecha ? `#d-${fecha}` : ''}`;
+  `/calendario?dia=${semanaValida(fecha)}${aviso ? `&aviso=${encodeURIComponent(aviso)}` : ''}`;
 
 // ---------- Rutas ----------
 async function atender(req, res) {
@@ -194,8 +194,22 @@ async function atender(req, res) {
   if (metodo === 'GET' && ruta === '/') return ir(res, '/calendario');
 
   if (metodo === 'GET' && ruta === '/calendario') {
-    const lunes = lunesDe(semanaValida(url.searchParams.get('semana')));
-    return html(res, 200, vistas.calendario({ dias: agenda.semana(lunes), lunes, aviso: url.searchParams.get('aviso') }));
+    // Mes del día elegido (semanas de lunes a domingo) y el detalle de ese día.
+    const fecha = semanaValida(url.searchParams.get('dia') || url.searchParams.get('semana'));
+    const inicio = lunesDe(`${fecha.slice(0, 8)}01`);
+    const celdas = [];
+    for (let i = 0; i < 42; i++) {
+      const f = sumarDias(inicio, i);
+      if (i % 7 === 0 && i > 0 && f.slice(0, 7) > fecha.slice(0, 7)) break;
+      celdas.push(agenda.dia(f));
+    }
+    return html(res, 200, vistas.calendario({
+      fecha,
+      celdas,
+      seleccionado: agenda.dia(fecha),
+      semana: agenda.semana(lunesDe(fecha)),
+      aviso: url.searchParams.get('aviso'),
+    }));
   }
 
   if (metodo === 'GET' && ruta === '/exportar') {

@@ -1,7 +1,7 @@
 // Páginas HTML de la app. Sin plantillas ni JavaScript en el navegador: solo HTML y formularios.
 
 const config = require('../config');
-const { sumarDias, fechaLarga, fechaCorta, horaCorta, MESES } = require('./fechas');
+const { fechaLarga, horaCorta, MESES } = require('./fechas');
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -34,25 +34,41 @@ function horasPosibles() {
   return [...horas].sort();
 }
 
-function pagina(titulo, cuerpo, { sesion = true } = {}) {
+// Íconos de línea (SVG dentro del HTML, sin archivos aparte).
+const ICONO = {
+  calendario: '<path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>',
+  mas: '<path d="M12 5v14M5 12h14"/>',
+  bajar: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  salir: '<path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 8l-4 4 4 4M6 12h10"/>',
+  atras: '<path d="M15 6l-6 6 6 6"/>',
+  adelante: '<path d="M9 6l6 6-6 6"/>',
+};
+const icono = (n) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONO[n]}</svg>`;
+
+function pagina(titulo, cuerpo, { sesion = true, activo = '' } = {}) {
+  const item = (href, nombre, ico, clave) =>
+    `<a class="nav-item${activo === clave ? ' activo' : ''}" href="${href}" title="${nombre}">${icono(ico)}<span>${nombre}</span></a>`;
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1a33">
 <title>${esc(titulo)} · Agenda del taller</title>
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body${sesion ? ' class="con-menu"' : ''}>
 ${
   sesion
-    ? `<header class="barra">
-  <a class="marca" href="/calendario"><span class="logo">SD</span><span>Agenda del taller</span></a>
-  <nav>
-    <a class="boton" href="/citas/nueva">+ Nueva cita</a>
-    <form method="post" action="/salir"><button class="enlace" type="submit">Salir</button></form>
+    ? `<aside class="lateral">
+  <a class="marca" href="/calendario" title="${esc(config.negocio)}"><span class="logo">SD</span></a>
+  <nav class="nav" aria-label="Menú">
+    ${item('/calendario', 'Calendario', 'calendario', 'calendario')}
+    ${item('/citas/nueva', 'Nueva cita', 'mas', 'nueva')}
+    ${item('/exportar', 'Copia', 'bajar', 'copia')}
+    <form method="post" action="/salir" class="nav-salir"><button class="nav-item" type="submit" title="Salir">${icono('salir')}<span>Salir</span></button></form>
   </nav>
-</header>`
+</aside>`
     : ''
 }
 <main>
@@ -78,12 +94,6 @@ function login(error) {
 </section>`,
     { sesion: false }
   );
-}
-
-function rangoSemana(lunes, ultimo) {
-  const [, m1, d1] = lunes.split('-').map(Number);
-  const [, m2, d2] = ultimo.split('-').map(Number);
-  return m1 === m2 ? `${d1} al ${d2} de ${MESES[m2 - 1]}` : `${fechaCorta(lunes)} al ${fechaCorta(ultimo)}`;
 }
 
 function tarjetaCita(c) {
@@ -120,57 +130,121 @@ function filaHora(d, h, semana) {
 </div>`;
 }
 
-function tarjetaDia(d, semana) {
-  const clases = ['dia', d.esHoy && 'hoy', d.pasado && 'pasado', d.cierre && 'cerrado'].filter(Boolean).join(' ');
+// Color de la cita en el calendario: por estado y, si sigue agendada, por servicio.
+const tonoCita = (c) =>
+  ({ CONFIRMADA: 'verde', LLEGO: 'verde', NO_ASISTIO: 'naranja', CANCELADA: 'rojo' })[c.estado] ||
+  (c.servicio === 'SINCRONIZACION' ? 'morado' : 'azul');
+
+const DIAS_CABEZA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const horaMini = (h) => horaCorta(h).replace(/ (a|p)\. m\./, '$1');
+
+// Primer día del mes anterior o siguiente.
+function otroMes(fecha, cuantos) {
+  let [a, m] = fecha.split('-').map(Number);
+  m += cuantos;
+  if (m < 1) { m = 12; a--; }
+  if (m > 12) { m = 1; a++; }
+  return `${a}-${String(m).padStart(2, '0')}-01`;
+}
+
+function celdaMes(d, mes, seleccionada) {
+  const fuera = d.fecha.slice(0, 7) !== mes;
+  const clases = ['celda', fuera && 'fuera', d.esHoy && 'hoy', d.fecha === seleccionada && 'sel', d.cierre && 'cerrado', d.pasado && 'pasado']
+    .filter(Boolean)
+    .join(' ');
+  const citas = d.horas.flatMap((h) => h.citas);
+  const cierre = !fuera && d.cierre && d.cierre !== 'Sin atención' ? `<span class="evento gris">${esc(d.cierre)}</span>` : '';
+  return `<a class="${clases}" href="/calendario?dia=${d.fecha}#dia" aria-label="${esc(mayuscula(fechaLarga(d.fecha)))}: ${citas.length} ${citas.length === 1 ? 'cita' : 'citas'}">
+  <span class="num">${Number(d.fecha.slice(8))}</span>
+  ${cierre}
+  ${citas.slice(0, 2).map((c) => `<span class="evento ${tonoCita(c)}"><b>${horaMini(c.hora)}</b> ${esc(c.cliente.split(/\s+/)[0])}</span>`).join('')}
+  ${citas.length > 2 ? `<span class="mas">+${citas.length - 2} más</span>` : ''}
+  ${citas.length ? `<span class="puntos" aria-hidden="true">${citas.slice(0, 4).map((c) => `<i class="${tonoCita(c)}"></i>`).join('')}</span>` : ''}
+</a>`;
+}
+
+function panelDia(d) {
+  const hayCitas = d.totalCitas > 0;
   const accionDia = d.pasado
     ? ''
     : d.bloqueoDelDia
-      ? `<form method="post" action="/bloqueos/${d.bloqueoDelDia.id}/borrar"><input type="hidden" name="semana" value="${semana}"><button class="enlace" type="submit">Abrir el día otra vez</button></form>`
+      ? `<form method="post" action="/bloqueos/${d.bloqueoDelDia.id}/borrar"><input type="hidden" name="semana" value="${d.fecha}"><button class="enlace" type="submit">Abrir el día otra vez</button></form>`
       : !d.cierre
         ? `<details class="bloquear-dia"><summary>Bloquear el día</summary>
           <form method="post" action="/bloqueos" class="en-linea">
-            <input type="hidden" name="fecha" value="${d.fecha}"><input type="hidden" name="semana" value="${semana}">
+            <input type="hidden" name="fecha" value="${d.fecha}"><input type="hidden" name="semana" value="${d.fecha}">
             <label class="oculto" for="motivo-${d.fecha}">Motivo</label>
             <input id="motivo-${d.fecha}" name="motivo" placeholder="Motivo (opcional)" maxlength="200">
             <button class="boton chico" type="submit">Bloquear</button>
           </form></details>`
         : '';
-
-  return `<section class="${clases}" id="d-${d.fecha}">
-  <header class="dia-cabeza">
-    <h2>${esc(mayuscula(fechaLarga(d.fecha)))}</h2>
-    ${d.esHoy ? '<span class="chip hoy">Hoy</span>' : ''}
-    ${d.cierre ? `<span class="chip mal">${esc(d.cierre)}</span>` : ''}
+  return `<section class="tarjeta panel-dia${d.pasado ? ' pasado' : ''}" id="dia">
+  <header class="panel-cabeza">
+    <div>
+      <p class="eyebrow">${d.esHoy ? 'Agenda de hoy' : 'Agenda del día'}</p>
+      <h2>${esc(mayuscula(fechaLarga(d.fecha)))}</h2>
+    </div>
     <span class="ocupacion" title="Citas / cupos del día">${d.totalCitas}${d.cupos ? `<small>/${d.cupos}</small>` : ''}</span>
   </header>
-  ${d.horas.length ? `<div class="horas">${d.horas.map((h) => filaHora(d, h, semana)).join('')}</div>` : '<p class="vacio">Sin horario de citas.</p>'}
+  ${d.cierre ? `<p><span class="chip mal">${esc(d.cierre)}</span></p>` : ''}
+  ${!hayCitas && !d.cierre ? '<p class="vacio">Sin citas este día.</p>' : ''}
+  ${d.horas.length ? `<div class="horas">${d.horas.map((h) => filaHora(d, h, d.fecha)).join('')}</div>` : ''}
   ${accionDia}
 </section>`;
 }
 
-function calendario({ dias, lunes, aviso }) {
-  const ultimo = dias.length ? dias[dias.length - 1].fecha : sumarDias(lunes, 6);
-  const total = dias.reduce((n, d) => n + d.totalCitas, 0);
-  const hoy = dias.find((d) => d.esHoy);
+// Anillo con el porcentaje de cupos ocupados en la semana del día elegido.
+function anilloSemana(semana) {
+  const citas = semana.reduce((n, d) => n + d.totalCitas, 0);
+  const cupos = semana.reduce((n, d) => n + d.cupos, 0);
+  const pct = cupos ? Math.min(100, Math.round((citas / cupos) * 100)) : 0;
+  return `<section class="tarjeta anillo-tarjeta">
+  <h2>Ocupación de la semana</h2>
+  <div class="anillo-fila">
+    <div class="anillo">
+      <svg viewBox="0 0 36 36" aria-hidden="true"><circle class="fondo" cx="18" cy="18" r="15.5" pathLength="100"/><circle class="lleno" cx="18" cy="18" r="15.5" pathLength="100" stroke-dasharray="${pct} 100"/></svg>
+      <span>${pct}%</span>
+    </div>
+    <ul class="leyenda">
+      <li><i class="azul"></i>${citas} ${citas === 1 ? 'cita' : 'citas'}</li>
+      <li><i class="gris"></i>${Math.max(0, cupos - citas)} cupos libres</li>
+    </ul>
+  </div>
+</section>`;
+}
+
+function calendario({ fecha, celdas, seleccionado, semana, aviso }) {
+  const mes = fecha.slice(0, 7);
+  const [a, m] = mes.split('-').map(Number);
+  const totalMes = celdas.filter((d) => d.fecha.slice(0, 7) === mes).reduce((n, d) => n + d.totalCitas, 0);
   return pagina(
     'Calendario',
-    `<section class="cabeza">
-  <div>
-    <p class="eyebrow">Semana</p>
-    <h1>${rangoSemana(lunes, ultimo)}</h1>
-    <p class="sub">${total} ${total === 1 ? 'cita' : 'citas'} esta semana${hoy ? ` · <a href="#d-${hoy.fecha}">${hoy.totalCitas} hoy</a>` : ''}</p>
+    `<header class="cal-cabeza">
+  <div class="cal-titulo">
+    <a class="flecha" href="/calendario?dia=${otroMes(fecha, -1)}" title="Mes anterior">${icono('atras')}</a>
+    <h1>${mayuscula(MESES[m - 1])} <span class="suave">${a}</span></h1>
+    <a class="flecha" href="/calendario?dia=${otroMes(fecha, 1)}" title="Mes siguiente">${icono('adelante')}</a>
   </div>
-  <nav class="semanas" aria-label="Cambiar de semana">
-    <a href="/calendario?semana=${sumarDias(lunes, -7)}">← Anterior</a>
-    <a href="/calendario">Esta semana</a>
-    <a href="/calendario?semana=${sumarDias(lunes, 7)}">Siguiente →</a>
-  </nav>
-</section>
+  <p class="sub">${totalMes} ${totalMes === 1 ? 'cita' : 'citas'} este mes</p>
+  <div class="cal-acciones">
+    <a class="boton secundario" href="/calendario">Hoy</a>
+    <a class="boton" href="/citas/nueva?fecha=${fecha}">${icono('mas')} Nueva cita</a>
+  </div>
+</header>
 ${aviso ? `<p class="alerta bien">${esc(aviso)}</p>` : ''}
-<div class="dias">
-${dias.map((d) => tarjetaDia(d, lunes)).join('\n')}
-</div>
-<p class="pie"><a href="/exportar">Descargar copia de todas las citas (JSON)</a></p>`
+<div class="tablero">
+  <section class="tarjeta mes" aria-label="Calendario del mes">
+    <div class="sem-cabeza">${DIAS_CABEZA.map((n) => `<span>${n}</span>`).join('')}</div>
+    <div class="rejilla">
+      ${celdas.map((d) => celdaMes(d, mes, fecha)).join('')}
+    </div>
+  </section>
+  <div class="lado">
+    ${panelDia(seleccionado)}
+    ${anilloSemana(semana)}
+  </div>
+</div>`,
+    { activo: 'calendario' }
   );
 }
 
@@ -208,8 +282,9 @@ ${error ? `<p class="alerta mal">${esc(error)}</p>` : ''}
   </div>
   <div class="campo"><label for="notas">Notas</label><textarea id="notas" name="notas" rows="3" maxlength="1000">${esc(v.notas)}</textarea></div>
   <label class="check"><input type="checkbox" name="forzar"${v.forzar ? ' checked' : ''}> Agendar aunque la hora esté llena, bloqueada o fuera de horario</label>
-  <div class="acciones"><a href="/calendario${v.fecha ? `?semana=${esc(v.fecha)}` : ''}">Volver</a><button class="boton" type="submit">Guardar cita</button></div>
-</form>`
+  <div class="acciones"><a href="/calendario${v.fecha ? `?dia=${esc(v.fecha)}` : ''}">Volver</a><button class="boton" type="submit">Guardar cita</button></div>
+</form>`,
+    { activo: 'nueva' }
   );
 }
 
@@ -225,7 +300,7 @@ function citaDetalle(c, { aviso, error } = {}) {
     c.cliente,
     `<section class="cabeza"><div><p class="eyebrow">Cita #${c.id}</p><h1>${esc(c.cliente)}</h1>
   <p class="sub">${esc(mayuscula(fechaLarga(c.fecha)))} · ${horaCorta(c.hora)} · ${chipEstado(c.estado)}</p></div>
-  <nav class="semanas"><a href="/calendario?semana=${c.fecha}#d-${c.fecha}">← Calendario</a></nav></section>
+  <nav class="semanas"><a href="/calendario?dia=${c.fecha}#dia">← Calendario</a></nav></section>
 ${aviso ? `<p class="alerta bien">${esc(aviso)}</p>` : ''}
 ${error ? `<p class="alerta mal">${esc(error)}</p>` : ''}
 <div class="detalle">
