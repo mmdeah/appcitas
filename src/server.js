@@ -12,6 +12,7 @@ const { crearBot } = require('./bot');
 const { crearKommo, leerCuerpo } = require('./kommo');
 const { crearAtencion } = require('./atencion');
 const { crearIA } = require('./ia');
+const { crearRecordatorios } = require('./recordatorios');
 const { crearConversacionLibre } = require('./libre');
 const vistas = require('./vistas');
 
@@ -36,6 +37,15 @@ const libre = crearConversacionLibre(agenda, { ia });
 const atenderBot = crearAtencion({ bot, conversaciones, kommo, libre });
 console.log(ia.activa ? 'IA de OpenRouter activa.' : 'IA sin configurar (OPENROUTER_API_KEY / OPENROUTER_MODEL): se usan solo reglas.');
 if (!kommo.activo) console.log('Kommo sin configurar: faltan KOMMO_SECRET y/o KOMMO_TOKEN. El bot no agendará.');
+const recordatorios = crearRecordatorios({ agenda, kommo });
+if (recordatorios.activo) {
+  // Revisa cada 5 minutos; solo actúa entre las 7 a. m. y el mediodía.
+  setInterval(() => recordatorios.revisar().catch((err) => console.error('Recordatorios:', err)), 5 * 60 * 1000).unref();
+  recordatorios.revisar().catch((err) => console.error('Recordatorios:', err));
+  console.log('Recordatorios activos: 7 a. m. del día anterior.');
+} else {
+  console.log('Recordatorios apagados: falta KOMMO_ETAPA_RECORDATORIO.');
+}
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'));
 
 const CABECERAS = {

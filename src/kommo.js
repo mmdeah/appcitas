@@ -102,8 +102,16 @@ function crearKommo({ secreto = process.env.KOMMO_SECRET, token = process.env.KO
       body: JSON.stringify([{ entity_id: Number(lead), note_type: 'common', params: { text: texto } }]),
     });
 
+  // Pasa el lead a otra etapa del embudo (allí un bot de Kommo hace lo suyo).
+  const moverLead = (lead, etapa) =>
+    api(`/api/v4/leads/${Number(lead)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status_id: Number(etapa), pipeline_id: Number(config.kommo.embudo) }),
+    });
+
   return {
     activo,
+    moverLead,
     verificar: (jwt) => verificarToken(jwt, secreto),
     direccionDeRetornoValida,
     contactoDelLead,

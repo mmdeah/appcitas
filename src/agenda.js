@@ -37,6 +37,9 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     desbloquear: db.prepare(`DELETE FROM bloqueos WHERE id = ? RETURNING *`),
     todasLasCitas: db.prepare(`SELECT * FROM citas ORDER BY fecha, hora, puesto`),
     todosLosBloqueos: db.prepare(`SELECT * FROM bloqueos ORDER BY fecha, hora`),
+    paraRecordar: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado IN ('AGENDADA', 'CONFIRMADA') AND kommo_lead IS NOT NULL AND recordada IS NULL ORDER BY hora`),
+    marcarRecordada: db.prepare(`UPDATE citas SET recordada = datetime('now') WHERE id = ?`),
+    otrasDelLead: db.prepare(`UPDATE citas SET estado = 'CANCELADA' WHERE kommo_lead = ? AND id <> ? AND fecha >= ? AND estado IN ('AGENDADA', 'CONFIRMADA') RETURNING *`),
   };
 
   function horasDeAtencion(fecha) {
@@ -210,6 +213,11 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     reservar,
     cambiarEstado,
     cancelar: (id) => cambiarEstado(id, 'CANCELADA'),
+    // Recordatorios: citas activas de ese día que vinieron de Kommo y aún no se recordaron.
+    paraRecordar: (fecha) => sql.paraRecordar.all(fecha),
+    marcarRecordada: (id) => sql.marcarRecordada.run(id),
+    // Al reprogramar por WhatsApp, la cita nueva reemplaza las que el lead tenía pendientes.
+    cancelarOtrasDelLead: (lead, idNueva) => (lead ? sql.otrasDelLead.all(String(lead), idNueva, ahora(reloj()).fecha) : []),
     bloquear,
     desbloquear: (id) => sql.desbloquear.get(id) || null,
     cita: (id) => sql.cita.get(id) || null,

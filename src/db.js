@@ -54,6 +54,7 @@ function abrir(archivo = ARCHIVO) {
   // Columnas agregadas después de la primera versión.
   const columnas = db.prepare('PRAGMA table_info(citas)').all().map((c) => c.name);
   if (!columnas.includes('kommo_lead')) db.exec('ALTER TABLE citas ADD COLUMN kommo_lead TEXT');
+  if (!columnas.includes('recordada')) db.exec('ALTER TABLE citas ADD COLUMN recordada TEXT'); // cuándo se mandó el recordatorio
 
   // Turnos cada 30 min con capacidad por hora: dos citas activas no pueden tener el mismo puesto en la misma hora.
   try {
