@@ -205,6 +205,31 @@ const MARCAS = new RegExp('\\b(' + [
 ].join('|') + ')\\b');
 const ES_VEHICULO = (t) => MARCAS.test(t) || /\b(19|20)\d{2}\b/.test(t) || /\b(carro|camioneta|moto|vehiculo|modelo)\b/.test(t);
 
+// Corta el día y la hora que vengan pegados al vehículo: "Kia Rio 2020 el sábado a las 2:30" → "Kia Rio 2020".
+function sinDiaNiHora(texto) {
+  const corte = String(texto).search(
+    /\s(el\s+|este\s+|para\s+el\s+)?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|ma[nñ]ana|hoy|pasado)\b|\s(a\s+las\s+)?\d{1,2}(:\d{2}|\s*(am|pm|a\.?\s?m|p\.?\s?m))\b|\sa\s+las\s+\d/i
+  );
+  return corte > 0 ? String(texto).slice(0, corte) : String(texto);
+}
+
+// Si la parte empieza con un nombre en mayúscula antes del vehículo, los separa:
+// "Fredy Valencia tuson i35 2012" → nombre "Fredy Valencia", vehículo "tuson i35 2012".
+function nombreYVehiculo(texto) {
+  const palabras = String(texto).trim().split(/\s+/);
+  let i = 0;
+  while (
+    i < palabras.length &&
+    i < 4 &&
+    /^\p{Lu}\p{Ll}+$/u.test(palabras[i]) &&
+    !MARCAS.test(normalizar(palabras[i])) &&
+    !NO_ES_NOMBRE.has(normalizar(palabras[i]))
+  ) i++;
+  if (i < 2 || i >= palabras.length) return { nombre: null, vehiculo: texto };
+  const nombre = limpiarNombre(palabras.slice(0, i).join(' '));
+  return nombre ? { nombre, vehiculo: palabras.slice(i).join(' ') } : { nombre: null, vehiculo: texto };
+}
+
 // Separa un mensaje en partes (líneas, comas, punto y coma) y reconoce nombre y vehículo por su forma.
 // Ej: "David Perlaza / Nissan Tiida 2015 / ABC133 / mañana 10 am".
 function porPartes(texto) {
@@ -228,9 +253,13 @@ function porPartes(texto) {
     if (esDiaUHora && !ES_VEHICULO(sinPlaca)) continue;
     if ((etiqueta && ['vehiculo', 'carro', 'moto', 'modelo'].includes(etiqueta[1])) || ES_VEHICULO(sinPlaca)) {
       if (!r.vehiculo) {
-        const limpio = resto
+        // "Fredy Valencia tucson i35 modelo 2012 sábado 2:30": nombre adelante, día y hora atrás.
+        const { nombre, vehiculo } = nombreYVehiculo(resto);
+        if (nombre && !r.nombre) r.nombre = nombre;
+        const limpio = sinDiaNiHora(vehiculo)
           .replace(/\b(la )?placa( es)?\b:?/i, ' ')
           .replace(/^\s*(tengo|es|mi carro es|mi vehiculo es|mi vehículo es)\s+(un|una)?\s*/i, '')
+          .replace(/\bmodelo\b/gi, ' ')
           .replace(/\s+/g, ' ')
           .replace(/^[\s,.-]+|[\s,.-]+$/g, '');
         if (limpio) r.vehiculo = limpio.slice(0, 120);
@@ -269,8 +298,9 @@ function extraerConReglas(texto, s, momento) {
   if (partes.vehiculo && (!s.datos.vehiculo || s.preguntando === 'vehiculo')) r.vehiculo = partes.vehiculo;
 
   // Respuesta directa a lo que se le preguntó.
-  if (s.preguntando === 'nombre' && !r.placa && !r.nombre) {
-    const nombre = limpiarNombre(texto);
+  // "Fredy Valencia CQW979": se quita la placa y lo que queda es el nombre.
+  if (s.preguntando === 'nombre' && !r.nombre && resto) {
+    const nombre = limpiarNombre(resto);
     if (nombre) r.nombre = nombre;
   }
   if (s.preguntando === 'vehiculo' && !r.vehiculo) {

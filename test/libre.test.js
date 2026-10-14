@@ -216,3 +216,19 @@ test('parte textos largos en mensajes de 80 caracteres sin cortar palabras', () 
   assert.ok(partes.length === 2);
   for (const p of partes) assert.ok([...p].length <= 80);
 });
+
+test('todo en una línea: separa nombre, vehículo, día y hora (caso real)', async () => {
+  // Martes 13 de octubre de 2026, 10 p. m.
+  const reloj13 = () => new Date('2026-10-14T03:00:00Z');
+  const libre = crearConversacionLibre(crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj13), { reloj: reloj13 });
+  const [r] = await charla(libre, ['Fredy Valencia tuson i35 modelo 2012 sábado 2:30']);
+  assert.deepEqual(
+    [r.siguiente.datos.nombre, r.siguiente.datos.vehiculo, r.siguiente.datos.fecha, r.siguiente.datos.hora],
+    ['Fredy Valencia', 'tuson i35 2012', '2026-10-17', '14:30']
+  );
+  assert.equal(r.siguiente.preguntando, 'placa');
+  // Si pidió nombre y placa y llegan juntos, toma los dos.
+  const [, ambos] = await charla(libre, ['tucson 2012 el sábado a las 3', 'Fredy Valencia CQW979']);
+  assert.equal(ambos.estado, 'listo');
+  assert.deepEqual([ambos.cita.cliente, ambos.cita.placa], ['Fredy Valencia', 'CQW979']);
+});
