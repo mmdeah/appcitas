@@ -147,7 +147,7 @@ body.con-menu { padding-left: 76px; }
 .evento.morado { background: var(--morado-tenue); color: var(--morado); }
 .evento.verde { background: var(--verde-tenue); color: var(--verde); }
 .evento.naranja { background: var(--naranja-tenue); color: var(--naranja); }
-.evento.rojo { background: var(--rojo-tenue); color: var(--rojo); }
+.evento.rojo { background: var(--rojo-tenue); color: var(--rojo); text-decoration: line-through; }
 .evento.gris { background: var(--hundido); color: var(--suave); }
 .mas { font-size: 0.72rem; font-weight: 600; color: var(--suave); padding-left: 4px; }
 .puntos { display: none; gap: 3px; justify-content: center; }
@@ -177,6 +177,8 @@ body.con-menu { padding-left: 76px; }
 .cita:hover { filter: brightness(0.97); }
 .cita.mal { background: var(--mal-tenue); border-left-color: var(--mal); }
 .cita.bien { background: var(--bien-tenue); border-left-color: var(--bien); }
+.cita.cancelada { opacity: 0.75; }
+.cita.cancelada b { text-decoration: line-through; }
 .cita-linea { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.88rem; min-width: 0; overflow-wrap: anywhere; }
 .cita-linea:empty { display: none; }
 .cita-linea.suave { color: var(--suave); font-size: 0.82rem; }

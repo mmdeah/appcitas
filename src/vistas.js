@@ -97,7 +97,7 @@ function login(error) {
 }
 
 function tarjetaCita(c) {
-  return `<a class="cita ${ESTADO[c.estado].tono}" href="/citas/${c.id}">
+  return `<a class="cita ${ESTADO[c.estado].tono}${c.estado === 'CANCELADA' ? ' cancelada' : ''}" href="/citas/${c.id}" title="${c.estado === 'CANCELADA' ? 'Cancelada: ábrela para volver a agendarla' : ''}">
   <span class="cita-linea"><b>${esc(c.cliente)}</b>${c.origen === 'BOT' ? '<span class="chip bot">Bot</span>' : ''}</span>
   <span class="cita-linea suave">${esc(nombreServicio(c.servicio))}${c.vehiculo ? ` · ${esc(c.vehiculo)}` : ''}</span>
   <span class="cita-linea">${c.placa ? `<span class="placa">${esc(placaBonita(c.placa))}</span>` : ''}${c.estado !== 'AGENDADA' ? chipEstado(c.estado) : ''}</span>
@@ -110,6 +110,7 @@ function filaHora(d, h, semana) {
   <span class="hora-t">${horaCorta(h.hora)}</span>
   <div class="hora-citas">
     ${h.citas.map(tarjetaCita).join('')}
+    ${(d.canceladas || []).filter((c) => c.hora === h.hora).map(tarjetaCita).join('')}
     ${
       h.bloqueo
         ? `<div class="bloqueo">Bloqueada${h.bloqueo.motivo ? `: ${esc(h.bloqueo.motivo)}` : ''}
@@ -152,7 +153,7 @@ function celdaMes(d, mes, seleccionada) {
   const clases = ['celda', fuera && 'fuera', d.esHoy && 'hoy', d.fecha === seleccionada && 'sel', d.cierre && 'cerrado', d.pasado && 'pasado']
     .filter(Boolean)
     .join(' ');
-  const citas = d.horas.flatMap((h) => h.citas);
+  const citas = [...d.horas.flatMap((h) => h.citas), ...(d.canceladas || [])].sort((a, b) => a.hora.localeCompare(b.hora));
   const cierre = !fuera && d.cierre && d.cierre !== 'Sin atención' ? `<span class="evento gris">${esc(d.cierre)}</span>` : '';
   return `<a class="${clases}" href="/calendario?dia=${d.fecha}#dia" aria-label="${esc(mayuscula(fechaLarga(d.fecha)))}: ${citas.length} ${citas.length === 1 ? 'cita' : 'citas'}">
   <span class="num">${Number(d.fecha.slice(8))}</span>
@@ -190,9 +191,9 @@ function panelDia(d) {
   ${!hayCitas && !d.cierre ? '<p class="vacio">Sin citas este día.</p>' : ''}
   ${d.horas.length ? `<div class="horas">${d.horas.map((h) => filaHora(d, h, d.fecha)).join('')}</div>` : ''}
   ${
-    d.canceladas.length
-      ? `<details class="canceladas"><summary>Canceladas (${d.canceladas.length})</summary>
-      <ul>${d.canceladas.map((c) => `<li><a href="/citas/${c.id}">${horaCorta(c.hora)} · ${esc(c.cliente)}${c.placa ? ` · ${esc(placaBonita(c.placa))}` : ''}</a></li>`).join('')}</ul>
+    d.canceladas.filter((c) => !d.horas.some((h) => h.hora === c.hora)).length
+      ? `<details class="canceladas" open><summary>Canceladas fuera del horario</summary>
+      <ul>${d.canceladas.filter((c) => !d.horas.some((h) => h.hora === c.hora)).map((c) => `<li><a href="/citas/${c.id}">${horaCorta(c.hora)} · ${esc(c.cliente)}${c.placa ? ` · ${esc(placaBonita(c.placa))}` : ''}</a></li>`).join('')}</ul>
       <p class="suave">Ábrela y toca «Volver a agendada» para reactivarla.</p></details>`
       : ''
   }
