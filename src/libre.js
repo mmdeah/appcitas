@@ -58,6 +58,14 @@ function partir(texto) {
   return partes;
 }
 
+// ¿La versión redactada conserva todos los datos del borrador? (horas, precios, placas, números de día)
+function conservaDatos(base, nuevo) {
+  if (!nuevo || [...nuevo].length > 500) return false;
+  const datos = base.match(/\d{1,2}:\d{2}|\$[\d.]+|\b[A-Z]{3}\d{2}[A-Z0-9]\b|\b\d{1,2}\b/g) || [];
+  const limpio = nuevo.replace(/\s+/g, ' ');
+  return datos.every((d) => new RegExp(`(^|[^\\d])${d.replace(/[$.]/g, '\\$&')}([^\\d]|$)`).test(limpio));
+}
+
 // Junta frases con espacio en mensajes de hasta 80 caracteres.
 function empacarFrases(frases) {
   const mensajes = [];
@@ -348,7 +356,9 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       return resultado('listo', null, empacar([
         `✅ ¡Listo, ${cita.cliente.split(/\s+/)[0]}! Agendé tu ${servicio.nombre}.`,
         `📅 ${mayuscula(fechaLarga(cita.fecha))} a las ${horaCorta(cita.hora)}`,
+        `🚗 ${cita.vehiculo || ''} · ${cita.placa || ''}`.replace(/^🚗  · $/, ''),
         `📍 ${config.direccion}. ¡Te esperamos! 🙌`,
+        'Si necesitas cambiar algo, escríbeme por aquí.',
       ]), {
         cita,
         data: { cita: String(cita.id), nombre: cita.cliente, servicio: servicio.nombre, fecha: fechaLarga(cita.fecha), hora: horaCorta(cita.hora) },
@@ -432,8 +442,8 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       return esperar(sig, [[...avisos, saludo, pregunta].join(' ')]);
     }
 
-    const sig = { ...s, datos: d, preguntando: null, confirmando: true, sinAvance: 0 };
-    return esperar(sig, [...avisos, ...resumen(sig)]);
+    // Con todos los datos y el turno libre, se agenda de una vez y se le confirma al cliente.
+    return guardar({ ...s, datos: d, preguntando: null, confirmando: false, sinAvance: 0 });
   }
 
   // estado: lo guardado (o null si es el primer mensaje con los datos).
@@ -451,6 +461,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
           sinAvance: 0,
         };
     const texto = String(mensaje || '').trim();
+    const historial = Array.isArray(s.historial) ? s.historial : [];
 
     let deIA = {};
     if (ia && ia.activa && texto) {
@@ -460,6 +471,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
             mensaje: texto,
             conocido: Object.fromEntries(CAMPOS.map((c) => [c, s.datos[c] || null])),
             pregunta: s.ultimaPregunta || '',
+            historial,
             hoy: momento.fecha,
             hora: momento.hora,
             servicio: config.servicios[s.servicio].nombre,
@@ -502,7 +514,34 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
     } else {
       r = decidir(s, cambio);
     }
-    if (r.siguiente) r.siguiente.ultimaPregunta = r.handlers.map((h) => h.params.value).join(' ').slice(0, 300);
+    // La IA redacta la respuesta para que suene natural; si cambia algún dato, se usa el texto original.
+    const base = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
+    let final = base;
+    if (ia && ia.activa && ia.redactar) {
+      try {
+        const natural = await ia.redactar({ borrador: base, historial: [...historial, { rol: 'cliente', texto }], servicio: config.servicios[s.servicio].nombre });
+        if (natural && conservaDatos(base, natural)) final = natural;
+        else if (natural) console.warn('IA: la redacción cambió datos, uso el texto original');
+      } catch (err) {
+        console.warn('IA: no pude redactar, uso el texto original:', err.message);
+      }
+    }
+    if (final !== base) {
+      const mensajes = empacarFrases(final.split(/\n+/).flatMap(partir));
+      const shows = mensajes.map((value) => ({ handler: 'show', params: { type: 'text', value } }));
+      if (r.estado === 'esperar') {
+        r.acuse = shows[0].params.value;
+        r.handlers = shows.slice(1);
+      } else {
+        r.handlers = shows;
+      }
+    }
+
+    // Historial de la conversación (lo último), para darle contexto a la IA en el siguiente mensaje.
+    if (r.siguiente) {
+      r.siguiente.historial = [...historial, { rol: 'cliente', texto }, { rol: 'taller', texto: final }].slice(-20);
+      r.siguiente.ultimaPregunta = final.slice(0, 300);
+    }
     return r;
   }
 

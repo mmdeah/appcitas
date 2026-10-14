@@ -61,65 +61,76 @@ test('lee días y horas escritos sin confundirlos con placas, años ni modelos',
   assert.equal(horaEscrita(t('10'), true), '10:00');
 });
 
-test('sin IA: toma lo que entiende y pregunta lo que falta hasta confirmar y guardar', async () => {
+test('sin IA: toma lo que entiende, pregunta lo que falta y agenda apenas tiene todo', async () => {
   const libre = crearConversacionLibre(agenda, { reloj });
-  const [primero, nombre, vehiculo, confirmar] = await charla(libre, [
+  const [primero, nombre, listo] = await charla(libre, [
     'Hola, quiero la revisión el jueves a las 10:30, placa ABC123',
     'Juan Pérez',
     'Chevrolet Spark 2015',
-    'sí',
   ]);
   assert.deepEqual(textos(primero), ['Perfecto 👍 ¿Me dices tu nombre y el vehículo (marca, modelo y año)?']);
-  assert.equal(primero.siguiente.datos.fecha, '2026-10-08');
-  assert.equal(primero.siguiente.datos.hora, '10:30');
   assert.deepEqual(textos(nombre), ['Gracias, Juan 🙌 ¿Qué vehículo es? Ej: Mazda 3 2018']);
-  assert.equal(nombre.siguiente.datos.nombre, 'Juan Pérez');
-  // El resumen va en 3 mensajes (antes eran 6).
-  assert.deepEqual(textos(vehiculo), [
-    'Te agendo así 👇\n🔧 Revisión General Preventiva\n📅 Jueves 8 de octubre, 10:30 a. m.',
-    '🚗 Chevrolet Spark 2015 · ABC123\n👤 Juan Pérez',
-    '¿Confirmo la cita? Responde SÍ o dime qué cambio ✍️',
-  ]);
-  assert.equal(confirmar.estado, 'listo');
-  const c = confirmar.cita;
+  // Con todos los datos agenda de una vez, sin preguntar "¿Confirmo?".
+  assert.equal(listo.estado, 'listo');
+  assert.match(textos(listo).join('\n'), /Listo, Juan!.*Jueves 8 de octubre a las 10:30 a\. m\..*Chevrolet Spark 2015 · ABC123/s);
+  const c = listo.cita;
   assert.deepEqual(
     [c.fecha, c.hora, c.cliente, c.vehiculo, c.placa, c.telefono, c.origen, c.kommo_lead],
     ['2026-10-08', '10:30', 'Juan Pérez', 'Chevrolet Spark 2015', 'ABC123', '573001234567', 'BOT', '55']
   );
 });
 
-test('la conversación real: datos en líneas y "mañana 10 am" van directo al resumen', async () => {
+test('la conversación real: un mensaje en líneas con "mañana 10 am" agenda de una vez', async () => {
   const media = crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj);
   const libre = crearConversacionLibre(media, { reloj });
-  const [resumen, listo] = await charla(libre, ['David Perlaza\nNissan Tiida\nABC133\nMañana 10 am', 'Si']);
-  assert.equal(resumen.siguiente.confirmando, true);
+  const [listo] = await charla(libre, ['David Perlaza\nNissan Tiida\nABC133\nMañana 10 am']);
+  assert.equal(listo.estado, 'listo');
   assert.deepEqual(
-    [resumen.siguiente.datos.nombre, resumen.siguiente.datos.vehiculo, resumen.siguiente.datos.placa, resumen.siguiente.datos.fecha, resumen.siguiente.datos.hora],
+    [listo.cita.cliente, listo.cita.vehiculo, listo.cita.placa, listo.cita.fecha, listo.cita.hora],
     ['David Perlaza', 'Nissan Tiida', 'ABC133', '2026-10-07', '10:00']
   );
-  assert.equal(listo.estado, 'listo');
-  assert.equal(listo.cita.hora, '10:00');
-
   // Si le preguntaron nombre y vehículo, los toma de dos líneas aunque traigan el año.
   const [, ambos] = await charla(libre, ['el viernes a las 9 placa XYZ789', 'David Perlaza\nNissan Versa 2010']);
-  assert.deepEqual([ambos.siguiente.datos.nombre, ambos.siguiente.datos.vehiculo], ['David Perlaza', 'Nissan Versa 2010']);
-  assert.equal(ambos.siguiente.confirmando, true);
+  assert.equal(ambos.estado, 'listo');
+  assert.deepEqual([ambos.cita.cliente, ambos.cita.vehiculo], ['David Perlaza', 'Nissan Versa 2010']);
 });
 
-test('con IA: un solo mensaje con todo va directo a confirmar', async () => {
+test('con IA: lee el mensaje, agenda y la respuesta suena natural sin cambiar los datos', async () => {
   const ia = {
     activa: true,
-    extraer: async ({ mensaje }) =>
-      /soy ana/i.test(mensaje)
-        ? { nombre: 'Ana Gómez', vehiculo: 'Renault Duster 2019', placa: 'jkl-456', fecha: '2026-10-09', hora: '14:30', confirma: null, asesor: false }
-        : { confirma: true },
+    extraer: async () => ({ nombre: 'Ana Gómez', vehiculo: 'Renault Duster 2019', placa: 'jkl-456', fecha: '2026-10-09', hora: '14:30', asesor: false }),
+    redactar: async ({ borrador }) => `¡Hola Ana! ${borrador}`,
   };
   const libre = crearConversacionLibre(agenda, { ia, reloj });
-  const [resumen, listo] = await charla(libre, ['soy ana, duster 2019 jkl456, el viernes tipo 2:30 de la tarde', 'dale']);
-  assert.equal(resumen.siguiente.confirmando, true);
-  assert.match(textos(resumen).join(' '), /Viernes 9 de octubre, 2:30 p\. m\./);
+  const [listo] = await charla(libre, ['soy ana, duster 2019 jkl456, el viernes tipo 2:30 de la tarde']);
   assert.equal(listo.estado, 'listo');
   assert.equal(listo.cita.placa, 'JKL456');
+  assert.match(textos(listo)[0], /^¡Hola Ana!/);
+
+  // Si la IA cambia una hora, se usa el texto original.
+  const tramposa = { ...ia, redactar: async ({ borrador }) => borrador.replace('2:30', '4:00') };
+  const aviso = console.warn;
+  console.warn = () => {};
+  try {
+    const [otra] = await charla(crearConversacionLibre(agenda, { ia: { ...tramposa, extraer: async () => ({ nombre: 'Luis', vehiculo: 'Kia Rio', placa: 'QWE123', fecha: '2026-10-09', hora: '14:30' }) }, reloj }), ['hola']);
+    assert.match(textos(otra).join(' '), /2:30 p\. m\./);
+  } finally {
+    console.warn = aviso;
+  }
+});
+
+test('guarda el historial de la conversación para darle contexto a la IA', async () => {
+  const vistos = [];
+  const ia = {
+    activa: true,
+    extraer: async ({ historial }) => { vistos.push(historial.length); return {}; },
+    redactar: async () => null,
+  };
+  const libre = crearConversacionLibre(agenda, { ia, reloj });
+  const r = await charla(libre, ['el jueves a las 10:30 placa ABC123', 'Juan']);
+  assert.deepEqual(vistos, [0, 2]);
+  assert.equal(r[1].siguiente.historial.length, 4);
+  assert.equal(r[1].siguiente.historial[2].texto, 'Juan');
 });
 
 test('si la IA falla, sigue con reglas sin romperse', async () => {
@@ -148,15 +159,6 @@ test('hora ocupada o día sin cupo: propone opciones reales', async () => {
   assert.deepEqual(textos(domingo), ['El domingo 11 de octubre no tengo cupo 😕', '¿Te sirve el viernes 9, el sábado 10 o el martes 13?']);
   assert.equal(domingo.siguiente.preguntando, 'fecha');
   assert.equal(domingo.siguiente.datos.fecha, null);
-});
-
-test('al confirmar puede cambiar un dato y vuelve a mostrar el resumen', async () => {
-  const libre = crearConversacionLibre(agenda, { reloj });
-  const r = await charla(libre, ['el jueves a las 10:30 placa ABC123', 'Juan', 'Mazda 3 2018', 'no', 'mejor el viernes', 'si']);
-  assert.match(textos(r[3]).join(' '), /Qué quieres cambiar/);
-  assert.match(textos(r[4]).join(' '), /Viernes 9 de octubre, 10:30 a\. m\./);
-  assert.equal(r[5].estado, 'listo');
-  assert.equal(r[5].cita.fecha, '2026-10-09');
 });
 
 test('pide asesor o no avanza 3 veces: pasa a asesor', async () => {
