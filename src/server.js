@@ -27,6 +27,8 @@ if (!CLAVE || !SECRETO) {
 const COOKIE_SEGURA = process.env.COOKIE_SECURE === 'true';
 const DURACION_SESION = 30 * 24 * 60 * 60; // 30 días, en segundos
 
+// Se limpian espacios: un espacio de más en Railway dejaba la base fuera del volumen.
+if (process.env.DB_PATH) process.env.DB_PATH = process.env.DB_PATH.trim();
 const db = abrir(process.env.DB_PATH || undefined);
 {
   // Al arrancar se dice dónde están los datos y cuántos hay, para notar si se perdieron.
