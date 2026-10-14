@@ -588,10 +588,11 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
         r.handlers = shows.slice(1);
       }
     }
-    // La IA redacta la respuesta para que suene natural; si cambia algún dato, se usa el texto original.
+    // La IA redacta las preguntas para que suenen naturales; si cambia algún dato, se usa el texto original.
+    // La confirmación de la cita y el paso a asesor van siempre con el texto fijo (sin cambios de la IA).
     const base = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
     let final = base;
-    if (ia && ia.activa && ia.redactar) {
+    if (ia && ia.activa && ia.redactar && r.estado === 'esperar') {
       try {
         const natural = await ia.redactar({ borrador: base, historial: [...historial, { rol: 'cliente', texto }], servicio: config.servicios[s.servicio].nombre });
         if (natural && conservaDatos(base, natural)) final = natural;

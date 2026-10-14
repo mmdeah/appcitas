@@ -105,7 +105,13 @@ test('con IA: lee el mensaje, agenda y la respuesta suena natural sin cambiar lo
   const [listo] = await charla(libre, ['soy ana, duster 2019 jkl456, el viernes tipo 2:30 de la tarde']);
   assert.equal(listo.estado, 'listo');
   assert.equal(listo.cita.placa, 'JKL456');
-  assert.match(textos(listo)[0], /^¡Hola Ana!/);
+  // La confirmación va con el texto fijo; la IA solo redacta las preguntas.
+  assert.match(textos(listo)[0], /^✅ ¡Listo, Ana!/);
+  const [pregunta] = await charla(crearConversacionLibre(agenda, { ia: { ...ia, extraer: async () => ({ nombre: 'Ana Gómez' }) }, reloj }), ['soy ana']);
+  assert.match(textos(pregunta)[0], /^¡Hola Ana!/);
+  // El paso a asesor también va con el texto fijo.
+  const [asesor] = await charla(crearConversacionLibre(agenda, { ia: { ...ia, extraer: async () => ({}) }, reloj }), ['hola']);
+  assert.deepEqual(textos(asesor), ['Dame un momento, ya te escribe un asesor 🙌']);
 
   // Si la IA cambia una hora, se usa el texto original.
   const tramposa = { ...ia, redactar: async ({ borrador }) => borrador.replace('2:30', '4:00') };
