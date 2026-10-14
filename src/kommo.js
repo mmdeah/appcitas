@@ -109,9 +109,18 @@ function crearKommo({ secreto = process.env.KOMMO_SECRET, token = process.env.KO
       body: JSON.stringify({ status_id: Number(etapa), pipeline_id: Number(config.kommo.embudo) }),
     });
 
+  // Número de una etapa del embudo buscándola por su nombre (sin importar mayúsculas ni tildes).
+  async function etapaPorNombre(nombre) {
+    const limpio = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    const embudo = await api(`/api/v4/leads/pipelines/${Number(config.kommo.embudo)}`);
+    const etapa = (embudo?._embedded?.statuses || []).find((e) => limpio(e.name) === limpio(nombre));
+    return etapa ? etapa.id : null;
+  }
+
   return {
     activo,
     moverLead,
+    etapaPorNombre,
     verificar: (jwt) => verificarToken(jwt, secreto),
     direccionDeRetornoValida,
     contactoDelLead,

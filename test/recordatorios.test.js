@@ -48,3 +48,13 @@ test('al reprogramar, la cita nueva del mismo lead cancela la anterior', () => {
   assert.equal(agenda.cita(vieja.id).estado, 'CANCELADA');
   assert.equal(agenda.cita(nueva.id).estado, 'AGENDADA');
 });
+
+test('busca la etapa RECORDATORIO por nombre si no se fijó el número', async () => {
+  const db = abrir(':memory:');
+  const agenda = crearAgenda(db, undefined, () => new Date('2026-10-12T13:00:00Z'));
+  agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-14', hora: '09:00', cliente: 'X', telefono: '3001110001', kommoLead: '11' }, { origen: 'BOT' });
+  const movidos = [];
+  const kommo = { activo: true, etapaPorNombre: async (n) => (n === 'RECORDATORIO' ? 777 : null), moverLead: async (l, e) => movidos.push([l, e]) };
+  await crearRecordatorios({ agenda, kommo, etapa: '', reloj: a('07:00') }).revisar();
+  assert.deepEqual(movidos, [['11', 777]]);
+});

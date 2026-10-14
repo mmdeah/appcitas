@@ -4,8 +4,9 @@
 const config = require('../config');
 const { ahora, sumarDias } = require('./fechas');
 
-function crearRecordatorios({ agenda, kommo, etapa = process.env.KOMMO_ETAPA_RECORDATORIO, reloj = () => new Date() }) {
-  const activo = Boolean(kommo.activo && etapa);
+// La etapa se busca por nombre en el embudo (o se fija con la variable KOMMO_ETAPA_RECORDATORIO).
+function crearRecordatorios({ agenda, kommo, etapa = process.env.KOMMO_ETAPA_RECORDATORIO, nombreEtapa = 'RECORDATORIO', reloj = () => new Date() }) {
+  const activo = Boolean(kommo.activo);
   let ocupado = false;
 
   async function revisar() {
@@ -16,8 +17,17 @@ function crearRecordatorios({ agenda, kommo, etapa = process.env.KOMMO_ETAPA_REC
     ocupado = true;
     const enviados = [];
     try {
+      const pendientes = agenda.paraRecordar(sumarDias(momento.fecha, 1));
+      if (!pendientes.length) return enviados;
+      if (!etapa) {
+        etapa = await kommo.etapaPorNombre(nombreEtapa);
+        if (!etapa) {
+          console.warn(`Recordatorio: no encontré la etapa "${nombreEtapa}" en el embudo de Kommo`);
+          return enviados;
+        }
+      }
       const yaMovidos = new Set();
-      for (const cita of agenda.paraRecordar(sumarDias(momento.fecha, 1))) {
+      for (const cita of pendientes) {
         try {
           // Un lead con dos citas mañana recibe un solo recordatorio.
           if (!yaMovidos.has(cita.kommo_lead)) await kommo.moverLead(cita.kommo_lead, etapa);

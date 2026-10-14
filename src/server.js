@@ -42,9 +42,7 @@ if (recordatorios.activo) {
   // Revisa cada 5 minutos; solo actúa entre las 7 a. m. y el mediodía.
   setInterval(() => recordatorios.revisar().catch((err) => console.error('Recordatorios:', err)), 5 * 60 * 1000).unref();
   recordatorios.revisar().catch((err) => console.error('Recordatorios:', err));
-  console.log('Recordatorios activos: 7 a. m. del día anterior.');
-} else {
-  console.log('Recordatorios apagados: falta KOMMO_ETAPA_RECORDATORIO.');
+  console.log('Recordatorios activos: 7 a. m. del día anterior (etapa RECORDATORIO de Kommo).');
 }
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'));
 
