@@ -165,13 +165,28 @@ test('hora ocupada o día sin cupo: propone opciones reales', async () => {
   assert.equal(domingo.siguiente.datos.fecha, null);
 });
 
-test('pide asesor o no avanza 3 veces: pasa a asesor', async () => {
+test('pide asesor o el mensaje no aporta nada: pasa a asesor de una vez', async () => {
   const libre = crearConversacionLibre(agenda, { reloj });
   const [asesor] = await charla(libre, ['quiero hablar con un asesor']);
   assert.equal(asesor.estado, 'asesor');
-  const r = await charla(libre, ['hola', 'ok', 'jaja']);
-  assert.equal(r[2].estado, 'asesor');
-  assert.equal(r[2].data.motivo, 'no_entendio');
+  const [r] = await charla(libre, ['jaja']);
+  assert.equal(r.estado, 'asesor');
+  assert.equal(r.data.motivo, 'no_entendio');
+  // Si ya iba agendando y se va por otro lado, también se corta.
+  const [, otroTema] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123', '¿y cuánto cuesta el cambio de aceite?']);
+  assert.equal(otroTema.estado, 'asesor');
+});
+
+test('"Sábado 9 am" es el sábado a las 9, no el día 9', async () => {
+  // Martes 13 de octubre de 2026, 9 p. m. (como la prueba real).
+  const reloj13 = () => new Date('2026-10-14T02:00:00Z');
+  const libre = crearConversacionLibre(crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj13), { reloj: reloj13 });
+  const [listo] = await charla(libre, ['Mario Rincón\nCQW979\nNissan March\nSábado 9 am']);
+  assert.equal(listo.estado, 'listo');
+  assert.deepEqual([listo.cita.fecha, listo.cita.hora], ['2026-10-17', '09:00']);
+  // Si falta el día, lo pregunta claro.
+  const [dia] = await charla(libre, ['Mario Rincón, Nissan March, CQW979, a las 9 am']);
+  assert.match(textos(dia).join(' '), /¿Para qué día te agendo a las 9:00 a\. m\.\? Tengo espacio mañana miércoles 14, el jueves 15 o el viernes 16\./);
 });
 
 test('Kommo con Paso = seguir y sin conversación guardada usa el texto libre', async () => {

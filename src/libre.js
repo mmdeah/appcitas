@@ -18,7 +18,8 @@ const {
 } = require('./bot');
 
 const DIAS_EN_VENTANA = 31;
-const MAX_SIN_AVANCE = 3;
+// Si un mensaje no aporta nada (otro tema, no se entiende), se pasa a un asesor de una vez.
+const MAX_SIN_AVANCE = 1;
 const CAMPOS = ['nombre', 'vehiculo', 'placa', 'fecha', 'hora', 'telefono'];
 const NOMBRE_CAMPO = {
   nombre: 'tu nombre',
@@ -157,16 +158,21 @@ function fechaEscrita(t, hoy, soloNumero = false) {
   const num =
     limpio.match(/\bel (?:dia )?(\d{1,2})\b(?!:)/) ||
     limpio.match(new RegExp(`\\b(\\d{1,2}) de (${MESES_SIN_TILDE.join('|')})\\b`)) ||
-    (dia && limpio.match(new RegExp(`\\b${dia[1]} (\\d{1,2})\\b(?!:)`))) ||
+    // "viernes 16" es el día 16, pero "sábado 9 am" es la hora.
+    (dia && limpio.match(new RegExp(`\\b${dia[1]} (\\d{1,2})\\b(?!:|\\s*(?:a m|am|p m|pm|y media|de la))`))) ||
     (soloNumero && limpio.match(/^(\d{1,2})$/));
   if (!dia && !num) return null;
-  for (let i = 0; i <= DIAS_EN_VENTANA; i++) {
-    const fecha = sumarDias(hoy, i);
-    if (dia && NOMBRES_DIA_SIN_TILDE[diaSemana(fecha)] !== dia[1]) continue;
-    if (num && Number(fecha.slice(8)) !== Number(num[1])) continue;
-    return fecha;
-  }
-  return null;
+  const buscar = (conNumero) => {
+    for (let i = 0; i <= DIAS_EN_VENTANA; i++) {
+      const fecha = sumarDias(hoy, i);
+      if (dia && NOMBRES_DIA_SIN_TILDE[diaSemana(fecha)] !== dia[1]) continue;
+      if (conNumero && num && Number(fecha.slice(8)) !== Number(num[1])) continue;
+      return fecha;
+    }
+    return null;
+  };
+  // Si el día de la semana y el número no cuadran, manda el día de la semana.
+  return buscar(true) || (dia ? buscar(false) : null);
 }
 
 // Hora escrita: "10:30", "a las 2", "a las 9 y media", "3 pm", "2 de la tarde". Sin a. m./p. m., de 1 a 6 es tarde.
@@ -332,10 +338,12 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       .slice(0, cuantas)
       .sort();
 
+  // "hoy martes 13", "mañana miércoles 14", "el jueves 15".
   const diasConCupoTexto = (hoy, cuantos = 3) =>
     agenda
       .diasConCupo(cuantos)
-      .map(({ fecha }) => etiquetaDia(fecha, hoy).replace(/^Hoy, /, 'hoy ').replace(/^Mañana, /, 'mañana ').toLowerCase());
+      .map(({ fecha }) => (fecha === hoy ? 'hoy ' : fecha === sumarDias(hoy, 1) ? 'mañana ' : 'el ') + diaCorto(fecha));
+  const unaU = (cosas) => (cosas.length <= 1 ? cosas.join('') : `${cosas.slice(0, -1).join(', ')} o ${cosas[cosas.length - 1]}`);
 
   function resumen(s) {
     const d = s.datos;
@@ -426,19 +434,19 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
     const faltan = CAMPOS.filter((c) => !d[c]);
     if (faltan.length) {
       const sinAvance = avance ? 0 : (s.sinAvance || 0) + 1;
-      if (sinAvance >= MAX_SIN_AVANCE) return asesor('No logré entenderte 🙈 Un asesor te escribe para ayudarte 🙌', 'no_entendio');
+      if (sinAvance >= MAX_SIN_AVANCE) return asesor('Dame un momento, ya te escribe un asesor 🙌', 'no_entendio');
       const sig = marcarSaludo({ ...s, datos: d, preguntando: faltan[0], confirmando: false, sinAvance });
       let pregunta;
       if (faltan.length > 2) {
         pregunta = `Para agendarte me falta ${lista(faltan.map((c) => NOMBRE_CAMPO[c]))} ✍️`;
       } else if (faltan[0] === 'fecha') {
-        const dias = lista(diasConCupoTexto(momento.fecha));
+        const dias = unaU(diasConCupoTexto(momento.fecha));
         pregunta = faltan.includes('hora')
-          ? `¿Qué día y a qué hora te queda bien? Tengo cupo el ${dias}, de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${horaCorta(config.horario[1]?.hasta || '15:30')}.`
-          : `¿Qué día te queda bien? Tengo cupo el ${dias}.`;
+          ? `¿Qué día y a qué hora te queda bien? Tengo espacio ${dias}, de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${horaCorta(config.horario[1]?.hasta || '15:30')}.`
+          : `¿Para qué día te agendo${d.hora ? ` a las ${horaCorta(d.hora)}` : ''}? Tengo espacio ${dias}.`;
       } else if (faltan[0] === 'hora') {
         const libres = agenda.horasLibres(d.fecha).map((h) => h.hora);
-        pregunta = `¿A qué hora el ${fechaLarga(d.fecha)}? Tengo libre ${rangosDeHoras(libres)}.`;
+        pregunta = `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Tengo libre ${rangosDeHoras(libres)}.`;
       } else if (faltan.length === 2) {
         pregunta = `¿Me dices ${NOMBRE_CAMPO[faltan[0]]} y ${NOMBRE_CAMPO[faltan[1]]}?`;
       } else {
@@ -513,7 +521,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       } else {
         const sinAvance = (s.sinAvance || 0) + 1;
         r = sinAvance >= MAX_SIN_AVANCE
-          ? asesor('No logré entenderte 🙈 Un asesor te escribe para ayudarte 🙌', 'no_entendio')
+          ? asesor('Dame un momento, ya te escribe un asesor 🙌', 'no_entendio')
           : esperar({ ...s, sinAvance }, ['¿Confirmo la cita? Responde SÍ o dime qué quieres cambiar ✍️']);
       }
     } else {
