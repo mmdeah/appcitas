@@ -371,8 +371,10 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       siguiente,
       acuse: estado === 'esperar' ? mensajes[0].params.value : undefined,
       handlers: estado === 'esperar' ? mensajes.slice(1).length ? mensajes.slice(1) : [mensajes[0]] : mensajes,
-      data: { estado, paso: siguiente ? siguiente.preguntando || 'confirmar' : undefined, ...extra.data },
       ...extra,
+      // Va de último: si "extra" trae su propio data (la cita, el motivo), no debe borrar el estado.
+      // Sin estado, el paso de Kommo salía por "Pasar a asesor" aunque la cita sí quedara agendada.
+      data: { ...extra.data, estado, paso: siguiente ? siguiente.preguntando || 'confirmar' : undefined },
     };
   };
   const esperar = (s, textos) => {

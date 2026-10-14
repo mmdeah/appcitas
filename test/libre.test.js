@@ -262,3 +262,15 @@ test('las citas del mismo cliente quedan todas activas', async () => {
   assert.equal(agenda.cita(a.cita.id).estado, 'AGENDADA');
   assert.equal(agenda.cita(b.cita.id).estado, 'AGENDADA');
 });
+
+test('a Kommo le llega estado "listo" al agendar y "asesor" al pasar a asesor (decide la salida del bot)', async () => {
+  const { paraKommo } = require('../src/atencion');
+  const libre = crearConversacionLibre(agenda, { reloj });
+  const [listo] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 10:30']);
+  assert.equal(listo.data.estado, 'listo');
+  assert.equal(paraKommo(listo).data.estado, 'listo');
+  assert.equal(listo.data.cita, String(listo.cita.id));
+  const [asesor] = await charla(libre, ['jaja']);
+  assert.equal(paraKommo(asesor).data.estado, 'asesor');
+  assert.equal(asesor.data.motivo, 'no_entendio');
+});
