@@ -14,7 +14,7 @@ function preparar(reloj) {
     agenda.reservar({ servicio: 'REVISION', fecha, hora, cliente: 'X', telefono, kommoLead: lead }, { origen: 'BOT' });
   const movidos = [];
   const kommo = { activo: true, moverLead: async (lead, etapa) => movidos.push([lead, etapa]) };
-  return { db, agenda, cita, movidos, recordatorios: crearRecordatorios({ agenda, kommo, etapa: '999', reloj }) };
+  return { db, agenda, cita, movidos, recordatorios: crearRecordatorios({ agenda, kommo, etapa: '999', encendido: true, reloj }) };
 }
 
 test('a las 7 a. m. pasa a RECORDATORIO los leads con cita mañana, una sola vez', async () => {
@@ -55,6 +55,15 @@ test('busca la etapa RECORDATORIO por nombre si no se fijó el número', async (
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-14', hora: '09:00', cliente: 'X', telefono: '3001110001', kommoLead: '11' }, { origen: 'BOT' });
   const movidos = [];
   const kommo = { activo: true, etapaPorNombre: async (n) => (n === 'RECORDATORIO' ? 777 : null), moverLead: async (l, e) => movidos.push([l, e]) };
-  await crearRecordatorios({ agenda, kommo, etapa: '', reloj: a('07:00') }).revisar();
+  await crearRecordatorios({ agenda, kommo, etapa: '', encendido: true, reloj: a('07:00') }).revisar();
   assert.deepEqual(movidos, [['11', 777]]);
+});
+
+test('apagados por defecto: no mueven nada sin RECORDATORIOS=si', async () => {
+  const { cita, movidos, agenda } = preparar(a('07:05'));
+  cita('2026-10-14', '09:00', '11', '3001110001');
+  const apagados = crearRecordatorios({ agenda, kommo: { activo: true, moverLead: async (l) => movidos.push(l) }, etapa: '999', encendido: false, reloj: a('07:05') });
+  assert.equal(apagados.activo, false);
+  await apagados.revisar();
+  assert.deepEqual(movidos, []);
 });

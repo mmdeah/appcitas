@@ -5,8 +5,9 @@ const config = require('../config');
 const { ahora, sumarDias } = require('./fechas');
 
 // La etapa se busca por nombre en el embudo (o se fija con la variable KOMMO_ETAPA_RECORDATORIO).
-function crearRecordatorios({ agenda, kommo, etapa = process.env.KOMMO_ETAPA_RECORDATORIO, nombreEtapa = 'RECORDATORIO', reloj = () => new Date() }) {
-  const activo = Boolean(kommo.activo);
+// Se encienden con la variable RECORDATORIOS=si (cuando el bot y la plantilla estén listos en Kommo).
+function crearRecordatorios({ agenda, kommo, etapa = process.env.KOMMO_ETAPA_RECORDATORIO, nombreEtapa = 'RECORDATORIO', encendido = process.env.RECORDATORIOS === 'si', reloj = () => new Date() }) {
+  const activo = Boolean(kommo.activo && encendido);
   let ocupado = false;
 
   async function revisar() {

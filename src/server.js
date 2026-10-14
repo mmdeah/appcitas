@@ -43,6 +43,8 @@ if (recordatorios.activo) {
   setInterval(() => recordatorios.revisar().catch((err) => console.error('Recordatorios:', err)), 5 * 60 * 1000).unref();
   recordatorios.revisar().catch((err) => console.error('Recordatorios:', err));
   console.log('Recordatorios activos: 7 a. m. del día anterior (etapa RECORDATORIO de Kommo).');
+} else {
+  console.log('Recordatorios apagados (variable RECORDATORIOS=si para encenderlos).');
 }
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'));
 
