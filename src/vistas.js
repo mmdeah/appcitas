@@ -189,6 +189,13 @@ function panelDia(d) {
   ${d.cierre ? `<p><span class="chip mal">${esc(d.cierre)}</span></p>` : ''}
   ${!hayCitas && !d.cierre ? '<p class="vacio">Sin citas este día.</p>' : ''}
   ${d.horas.length ? `<div class="horas">${d.horas.map((h) => filaHora(d, h, d.fecha)).join('')}</div>` : ''}
+  ${
+    d.canceladas.length
+      ? `<details class="canceladas"><summary>Canceladas (${d.canceladas.length})</summary>
+      <ul>${d.canceladas.map((c) => `<li><a href="/citas/${c.id}">${horaCorta(c.hora)} · ${esc(c.cliente)}${c.placa ? ` · ${esc(placaBonita(c.placa))}` : ''}</a></li>`).join('')}</ul>
+      <p class="suave">Ábrela y toca «Volver a agendada» para reactivarla.</p></details>`
+      : ''
+  }
   ${accionDia}
 </section>`;
 }

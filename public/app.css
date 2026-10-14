@@ -186,7 +186,11 @@ body.con-menu { padding-left: 76px; }
 .bloqueo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 9px; border-radius: 10px; background: var(--hundido); color: var(--suave); font-size: 0.86rem; }
 .bloqueo form { margin: 0; }
 
-.bloquear-dia summary, details.peligro summary { cursor: pointer; color: var(--suave); font-size: 0.9rem; }
+.canceladas { font-size: 0.9rem; }
+.canceladas ul { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.canceladas a { color: var(--suave); text-decoration: line-through; }
+.canceladas p { font-size: 0.82rem; }
+.bloquear-dia summary, details.peligro summary, .canceladas summary { cursor: pointer; color: var(--suave); font-size: 0.9rem; }
 .en-linea { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .en-linea input { flex: 1 1 160px; }
 

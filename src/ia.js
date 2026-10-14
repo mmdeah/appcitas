@@ -23,10 +23,27 @@ function instrucciones({ hoy, hora, servicio }) {
   ].join('\n');
 }
 
-function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.OPENROUTER_MODEL, espera = 30000 } = {}) {
+function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.OPENROUTER_MODEL, espera = 120000, intentos = 3 } = {}) {
   const activa = Boolean(clave && modelo);
 
+  // Reintenta si OpenRouter está ocupado, falla o se demora (5 s, luego 15 s de pausa).
   async function pedir(cuerpo) {
+    let ultimo;
+    for (let i = 0; i < intentos; i++) {
+      if (i) await new Promise((listo) => setTimeout(listo, i === 1 ? 5000 : 15000));
+      try {
+        const r = await pedirUnaVez(cuerpo);
+        if (r.status !== 429 && r.status < 500) return r;
+        ultimo = new Error(`OpenRouter respondió ${r.status}`);
+      } catch (err) {
+        ultimo = err;
+      }
+      console.warn(`IA: intento ${i + 1} falló (${ultimo.message}), ${i + 1 < intentos ? 'reintento' : 'sigo sin IA'}`);
+    }
+    throw ultimo;
+  }
+
+  async function pedirUnaVez(cuerpo) {
     return fetch(URL, {
       method: 'POST',
       headers: {

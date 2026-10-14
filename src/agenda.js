@@ -25,6 +25,7 @@ const textoOpcional = (valor, max) => String(valor || '').trim().slice(0, max) |
 function crearAgenda(db, cfg = config, reloj = () => new Date()) {
   const sql = {
     citasDelDia: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado <> 'CANCELADA' ORDER BY hora, puesto`),
+    canceladasDelDia: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado = 'CANCELADA' ORDER BY hora, id`),
     // Cupo por bloque de una hora: 9:00 y 9:30 comparten los mismos puestos.
     puestosOcupados: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND substr(hora, 1, 2) = ? AND estado <> 'CANCELADA'`),
     cita: db.prepare(`SELECT * FROM citas WHERE id = ?`),
@@ -87,6 +88,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
       esHoy: fecha === momento.fecha,
       pasado: fecha < momento.fecha,
       totalCitas: citas.length,
+      canceladas: sql.canceladasDelDia.all(fecha),
       cupos: cierre ? 0 : new Set(deAtencion.map(bloque)).size * cfg.capacidadPorHora,
       horas: horas.map((hora) => {
         const citasDeLaHora = citas.filter((c) => c.hora === hora);

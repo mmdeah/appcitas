@@ -232,3 +232,27 @@ test('todo en una línea: separa nombre, vehículo, día y hora (caso real)', as
   assert.equal(ambos.estado, 'listo');
   assert.deepEqual([ambos.cita.cliente, ambos.cita.placa], ['Fredy Valencia', 'CQW979']);
 });
+
+test('preguntas comunes en medio de la conversación: responde y sigue con la cita', async () => {
+  const libre = crearConversacionLibre(agenda, { reloj });
+  const [primero, donde] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123', '¿dónde quedan?']);
+  assert.equal(primero.estado, 'esperar');
+  assert.equal(donde.estado, 'esperar');
+  assert.match(textos(donde)[0], /Av\. 6 Norte #18-22/);
+  assert.match(textos(donde).join(' '), /¿Qué día y a qué hora/);
+  assert.doesNotMatch(textos(donde).join(' '), /No te entendí|Perfecto/);
+
+  const [precio] = await charla(libre, ['cuánto vale la revisión? el jueves a las 10:30, Ana Ruiz, Kia Rio 2020, QWE123']);
+  assert.equal(precio.estado, 'listo');
+
+  const [soloPrecio] = await charla(libre, ['¿cuánto cuesta?']);
+  assert.match(textos(soloPrecio)[0], /\$60\.000/);
+});
+
+test('las citas del mismo cliente quedan todas activas', async () => {
+  const libre = crearConversacionLibre(agenda, { reloj });
+  const [a] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 10:30']);
+  const [b] = await charla(libre, ['Juan Pérez, Kia Rio 2020, QWE123, el viernes a las 9:30']);
+  assert.equal(agenda.cita(a.cita.id).estado, 'AGENDADA');
+  assert.equal(agenda.cita(b.cita.id).estado, 'AGENDADA');
+});

@@ -205,6 +205,29 @@ const MARCAS = new RegExp('\\b(' + [
 ].join('|') + ')\\b');
 const ES_VEHICULO = (t) => MARCAS.test(t) || /\b(19|20)\d{2}\b/.test(t) || /\b(carro|camioneta|moto|vehiculo|modelo)\b/.test(t);
 
+// Preguntas comunes que el bot responde sin cortar la conversación.
+function preguntaFrecuente(texto, servicio) {
+  const t = normalizar(texto);
+  const s = config.servicios[servicio] || config.servicios.REVISION;
+  // Precio o duración de OTRO servicio (aceite, frenos…): eso lo responde un asesor.
+  const otroServicio = /\b(aceite|latoneria|pintura|frenos?|llantas?|alineacion|balanceo|lavado|bateria|embrague|suspension|aire|scanner|escaner|diagnostico)\b/.test(t);
+  const respuestas = [];
+  if (/\b(donde|direccion|ubicad\w*|ubicacion|como llego|como llegar|en que parte|que barrio)\b/.test(t)) {
+    respuestas.push(`📍 Estamos en la ${config.direccion}.`);
+  }
+  if (!otroServicio && /\b(cuanto (vale|cuesta|es|sale|cobran)|precio|valor|costo)\b/.test(t)) {
+    respuestas.push(`💰 ${s.nombre}: ${String(s.precio).replace(/^Precio:\s*/i, '')}.`.replace(/\.\.$/, '.'));
+  }
+  if (/\b(horario|a que hora (abren|cierran|atienden)|hasta que hora|que dias (atienden|trabajan|abren)|abren el|atienden el)\b/.test(t)) {
+    respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m. Las citas son de 8:30 a. m. a 3:30 p. m.');
+  }
+  if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
+    const min = s.duracionMinutos;
+    respuestas.push(`⏱️ La ${s.corto.toLowerCase()} dura aprox. ${min >= 60 ? `${min / 60} horas` : `${min} minutos`}.`);
+  }
+  return respuestas.join(' ') || null;
+}
+
 // Corta el día y la hora que vengan pegados al vehículo: "Kia Rio 2020 el sábado a las 2:30" → "Kia Rio 2020".
 function sinDiaNiHora(texto) {
   const corte = String(texto).search(
@@ -395,10 +418,6 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
         { servicio: s.servicio, fecha: d.fecha, hora: d.hora, cliente: d.nombre, telefono: d.telefono, vehiculo: d.vehiculo, placa: d.placa, kommoLead: s.lead },
         { origen: 'BOT' }
       );
-      // Si estaba reprogramando, la cita anterior queda cancelada.
-      for (const vieja of agenda.cancelarOtrasDelLead(cita.kommo_lead, cita.id)) {
-        console.log('Cita reprogramada: cancelo la anterior', { lead: cita.kommo_lead, id: vieja.id, fecha: vieja.fecha, hora: vieja.hora });
-      }
       const servicio = config.servicios[cita.servicio];
       return resultado('listo', null, empacar([
         `✅ ¡Listo, ${cita.cliente.split(/\s+/)[0]}! Agendé tu ${servicio.nombre}.`,
@@ -426,14 +445,14 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
   }
 
   // Revisa los datos y decide qué decir. "s" ya trae los datos combinados.
-  function decidir(s, avance) {
+  function decidir(s, avance, { conPregunta = false } = {}) {
     const momento = ahora(reloj());
     const d = { ...s.datos };
     const avisos = [];
 
     // Saludo corto según lo que pasó con este mensaje.
     const primerNombre = d.nombre ? d.nombre.split(/\s+/)[0] : '';
-    const saludo = !avance ? 'No te entendí 🙈' : primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌` : 'Perfecto 👍';
+    const saludo = conPregunta ? '' : !avance ? 'No te entendí 🙈' : primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌` : 'Perfecto 👍';
     const marcarSaludo = (sig) => (primerNombre ? { ...sig, saludado: true } : sig);
 
     // El día pedido tiene que tener cupo: si no, se proponen los 3 días con cupo más cercanos.
@@ -486,7 +505,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       } else {
         pregunta = PREGUNTA[faltan[0]];
       }
-      return esperar(sig, [[...avisos, saludo, pregunta].join(' ')]);
+      return esperar(sig, [[...avisos, saludo, pregunta].filter(Boolean).join(' ')]);
     }
 
     // Con todos los datos y el turno libre, se agenda de una vez y se le confirma al cliente.
@@ -559,7 +578,15 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
           : esperar({ ...s, sinAvance }, ['¿Confirmo la cita? Responde SÍ o dime qué quieres cambiar ✍️']);
       }
     } else {
-      r = decidir(s, cambio);
+      // Si preguntó algo común (dirección, precio, horario, duración), se le responde y se sigue con la cita.
+      const respuesta = preguntaFrecuente(texto, s.servicio);
+      r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
+      if (respuesta && r.estado === 'esperar') {
+        const antes = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean);
+        const shows = [...partir(respuesta), ...antes].map((value) => ({ handler: 'show', params: { type: 'text', value } }));
+        r.acuse = shows[0].params.value;
+        r.handlers = shows.slice(1);
+      }
     }
     // La IA redacta la respuesta para que suene natural; si cambia algún dato, se usa el texto original.
     const base = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
@@ -595,4 +622,4 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
   return { responder };
 }
 
-module.exports = { crearConversacionLibre, extraerConReglas, porPartes, fechaEscrita, horaEscrita, limpiarIA, partir, horarioCitas };
+module.exports = { crearConversacionLibre, preguntaFrecuente, extraerConReglas, porPartes, fechaEscrita, horaEscrita, limpiarIA, partir, horarioCitas };
