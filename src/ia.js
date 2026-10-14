@@ -23,7 +23,7 @@ function instrucciones({ hoy, hora, servicio }) {
   ].join('\n');
 }
 
-function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.OPENROUTER_MODEL, espera = 10000 } = {}) {
+function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.OPENROUTER_MODEL, espera = 30000 } = {}) {
   const activa = Boolean(clave && modelo);
 
   async function pedir(cuerpo) {
