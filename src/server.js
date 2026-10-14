@@ -28,6 +28,19 @@ const COOKIE_SEGURA = process.env.COOKIE_SECURE === 'true';
 const DURACION_SESION = 30 * 24 * 60 * 60; // 30 días, en segundos
 
 const db = abrir(process.env.DB_PATH || undefined);
+{
+  // Al arrancar se dice dónde están los datos y cuántos hay, para notar si se perdieron.
+  const { n, activas } = db.prepare(`SELECT count(*) AS n, sum(estado <> 'CANCELADA') AS activas FROM citas`).get();
+  console.log(`Base de datos: ${process.env.DB_PATH || '(archivo local por defecto)'} · ${n} citas guardadas (${activas || 0} activas).`);
+  // En Railway los datos solo sobreviven a un redespliegue si están dentro del volumen.
+  const volumen = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    if (!volumen) console.warn('⚠️ Railway sin volumen: las citas se BORRAN en cada despliegue. Agrega un volumen montado en /data.');
+    else if (!String(process.env.DB_PATH || '').startsWith(volumen)) {
+      console.warn(`⚠️ DB_PATH no está dentro del volumen (${volumen}): las citas se BORRAN en cada despliegue. Usa DB_PATH=${volumen}/taller.db`);
+    }
+  }
+}
 const agenda = crearAgenda(db);
 const conversaciones = crearConversaciones(db);
 const bot = crearBot(agenda);
