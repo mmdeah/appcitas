@@ -19,7 +19,11 @@ function instrucciones({ hoy, hora, servicio }) {
     '- "hora": hora en formato HH:MM de 24 horas ("a las 2 de la tarde" = "14:00"; si solo dice "en la tarde" o no dice, null).',
     '- "confirma": true si acepta o confirma lo que se le propuso, false si lo rechaza o pide cambiar algo, null si no aplica.',
     '- "asesor": true si pide hablar con una persona o asesor; si no, false.',
-    'No inventes nada: si un dato no está en el mensaje, usa null.',
+    '- "despedida": true si el cliente se despide, agradece para cerrar o dice que confirmará/avisará después (no quiere agendar ahora); si no, false.',
+    'Extrae SOLO lo que dice el MENSAJE NUEVO. La conversación es contexto para entenderlo, pero no repitas días ni horas de mensajes anteriores.',
+    'Si menciona un día solo para decir cuándo responderá ("mañana te confirmo"), eso NO es la fecha de la cita: usa null.',
+    'Si pregunta si hay cupo un día ("¿para mañana no tienes?"), ese día SÍ es la fecha que quiere.',
+    'No inventes nada: si un dato no está en el mensaje nuevo, usa null.',
   ].join('\n');
 }
 

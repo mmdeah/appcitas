@@ -218,14 +218,15 @@ function preguntaFrecuente(texto, servicio) {
   if (!otroServicio && /\b(cuanto (vale|cuesta|es|sale|cobran)|precio|valor|costo)\b/.test(t)) {
     respuestas.push(`💰 ${s.nombre}: ${String(s.precio).replace(/^Precio:\s*/i, '')}.`.replace(/\.\.$/, '.'));
   }
-  if (/\b(horario|a que hora (abren|cierran|atienden)|hasta que hora|que dias (atienden|trabajan|abren)|abren el|atienden el)\b/.test(t)) {
-    respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m. Las citas son de 8:30 a. m. a 3:30 p. m.');
+  // "¿Para mañana no tienes en ningún horario?" es pedir cupo, no preguntar el horario de atención.
+  if (/\b(horarios? de atencion|que horario (tienen|manejan)|cual es (el|su) horario|a que hora (abren|cierran|atienden)|hasta que hora (atienden|abren|trabajan)|que dias (atienden|trabajan|abren))\b/.test(t)) {
+    respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.');
   }
   if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
     const min = s.duracionMinutos;
     respuestas.push(`⏱️ La ${s.corto.toLowerCase()} dura aprox. ${min >= 60 ? `${min / 60} horas` : `${min} minutos`}.`);
   }
-  return respuestas.join(' ') || null;
+  return respuestas.length ? respuestas : null;
 }
 
 // Corta el día y la hora que vengan pegados al vehículo: "Kia Rio 2020 el sábado a las 2:30" → "Kia Rio 2020".
@@ -314,6 +315,11 @@ function extraerConReglas(texto, s, momento) {
     r.confirma = true;
   } else if (/^(no|cambia|cambiar|mejor)\b/.test(t)) r.confirma = false;
   if (quiereAsesor(texto)) r.asesor = true;
+  // "Mañana te confirmo", "luego te aviso", "gracias, lo pienso": no quiere agendar ahora.
+  if (/\b(te|le) (confirmo|confirmaria|aviso|avisaria|escribo|escribiria|digo|diria|cuento|contaria)\b|\b(lo|la) (pienso|voy a pensar|reviso)\b|\b(luego|despues|mas tarde|otro dia) (te|le|les) (escribo|aviso|confirmo)\b|^(muchas )?gracias[.! ]*$|\bmuchas gracias\b.*$/.test(t) && !r.placa && !r.hora) {
+    r.despedida = true;
+    delete r.fecha; // "mañana te confirmo" no es la fecha de la cita
+  }
 
   // Nombre y vehículo por la forma de cada línea o parte del mensaje (sin pisar lo que ya se tiene).
   const partes = porPartes(texto);
@@ -360,6 +366,7 @@ function limpiarIA(ia, momento) {
   if (esHora(ia.hora)) r.hora = ia.hora;
   if (typeof ia.confirma === 'boolean') r.confirma = ia.confirma;
   if (ia.asesor === true) r.asesor = true;
+  if (ia.despedida === true) r.despedida = true;
   return r;
 }
 
@@ -561,12 +568,15 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       nombre: deIA.nombre || deReglas.nombre,
       vehiculo: deIA.vehiculo || deReglas.vehiculo,
       placa: deReglas.placa || deIA.placa,
-      fecha: deIA.fecha || deReglas.fecha,
+      fecha: deReglas.fecha || deIA.fecha,
       hora: deReglas.hora || deIA.hora,
       telefono: deReglas.telefono,
     };
     const confirma = deReglas.confirma ?? deIA.confirma;
     if (deReglas.asesor || deIA.asesor) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');
+    if (deReglas.despedida || deIA.despedida) {
+      return asesor('¡Con gusto! 🙌 Cuando quieras me escribes por aquí y te separo el cupo.', 'despedida');
+    }
 
     const antes = JSON.stringify(s.datos);
     for (const [campo, valor] of Object.entries(nuevo)) if (valor) s.datos[campo] = valor;
@@ -589,7 +599,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
       if (respuesta && r.estado === 'esperar') {
         const antes = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean);
-        const shows = [...partir(respuesta), ...antes].map((value) => ({ handler: 'show', params: { type: 'text', value } }));
+        const shows = [...respuesta.flatMap(partir), ...antes].map((value) => ({ handler: 'show', params: { type: 'text', value } }));
         r.acuse = shows[0].params.value;
         r.handlers = shows.slice(1);
       }

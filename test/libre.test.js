@@ -274,3 +274,23 @@ test('a Kommo le llega estado "listo" al agendar y "asesor" al pasar a asesor (d
   assert.equal(paraKommo(asesor).data.estado, 'asesor');
   assert.equal(asesor.data.motivo, 'no_entendio');
 });
+
+test('caso real Dario: pedir cupo para mañana no es preguntar el horario, y "mañana te confirmo" cierra amable', async () => {
+  // Martes 13 de octubre, 10 p. m.
+  const reloj13 = () => new Date('2026-10-14T03:08:00Z');
+  const media = crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj13);
+  const libre = crearConversacionLibre(media, { reloj: reloj13 });
+  const [, manana, adios] = await charla(libre, [
+    'Dario Pineda, Chevrolet onix activ 2018, ENT921',
+    'Para mañana no tienes en ningún horario?',
+    'Mañana te confirmaría listo Muchas gracias',
+  ]);
+  assert.doesNotMatch(textos(manana).join(' '), /Atendemos/);
+  assert.equal(manana.siguiente.datos.fecha, '2026-10-14');
+  assert.equal(adios.estado, 'asesor');
+  assert.equal(adios.data.motivo, 'despedida');
+  assert.match(textos(adios)[0], /Cuando quieras/);
+  // Preguntar el horario de atención sí lo responde, en frases completas.
+  const [, horario] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123', '¿cuál es su horario de atención?']);
+  assert.deepEqual(textos(horario).slice(0, 2), ['🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.']);
+});
