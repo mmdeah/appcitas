@@ -138,7 +138,7 @@ test('si la hora se ocupa mientras el cliente elige, ofrece otra', () => {
   const r = bot.responder({ estado: { ...vehiculo.siguiente, telefono: '573001112233' }, mensaje: 'Kia Picanto ABC123' });
   assert.equal(r.estado, 'esperar');
   assert.equal(r.siguiente.paso, 'hora');
-  assert.equal(r.acuse, 'Uy, esa hora se acaba de llenar.');
+  assert.equal(r.acuse, 'Esa hora se acaba de ocupar.');
   assert.ok(!r.siguiente.horas.includes('10:30'));
   assert.equal(nombre.siguiente.hora, '10:30');
 });
@@ -192,7 +192,7 @@ test('"Otra fecha" y "Otra hora" dejan escribir el día y la hora', () => {
 
   // Un día sin cupo (domingo 11) propone los más cercanos con cupo.
   const [, , domingo] = charla(['Otra fecha', 'el domingo']);
-  assert.match(domingo.acuse, /Uy, ese día ya se llenó/);
+  assert.match(domingo.acuse, /Ese día ya no tenemos cupos disponibles/);
   assert.deepEqual(domingo.handlers[0].params.buttons, ['Viernes 9', 'Sábado 10', 'Otra fecha']);
 
   const [, , otraHora, horaEscrita] = charla(['Viernes 9', 'Otra hora', '2:30']);

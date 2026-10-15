@@ -68,7 +68,7 @@ function porPalabras(texto) {
 const conPunto = (t) => (/[.!?]$/.test(t) ? t : `${t}.`);
 
 // Frases y caritas que no van con el tono del taller (si la IA las usa, se manda el texto original).
-const TONO_PROHIBIDO = /qu[eé] pena|lamentablemente|desafortunadamente|disculp|lo siento|lo lamento|😕|😔|😢|😞|🙁|☹/i;
+const TONO_PROHIBIDO = /qu[eé] pena|lamentablemente|desafortunadamente|disculp|lo siento|lo lamento|\buy\b|😕|😔|😢|😞|🙁|☹/i;
 
 // ¿La versión redactada conserva todos los datos del borrador? (horas, precios, placas, números de día)
 function conservaDatos(base, nuevo) {
@@ -458,8 +458,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
         const otras = horasCercanas(d.fecha, d.hora);
         const sig = { ...s, confirmando: false, preguntando: 'hora', datos: { ...d, hora: null } };
-        if (!otras.length) return esperar({ ...sig, preguntando: 'fecha', datos: { ...sig.datos, fecha: null } }, ['Uy, ese horario se acaba de llenar. ¿Qué otro día te sirve?']);
-        return esperar(sig, ['Uy, ese horario se acaba de llenar.', `Te queda libre ${conPunto(listaHoras(otras))} ¿Cuál prefieres?`]);
+        if (!otras.length) return esperar({ ...sig, preguntando: 'fecha', datos: { ...sig.datos, fecha: null } }, ['Ese horario se acaba de ocupar. ¿Qué otro día te sirve?']);
+        return esperar(sig, ['Ese horario se acaba de ocupar.', `Tenemos disponible ${conPunto(listaHoras(otras))} ¿Cuál prefieres?`]);
       }
       if (err.codigo === 'DATOS' && /tel[eé]fono/i.test(err.message)) {
         return esperar({ ...s, confirmando: false, preguntando: 'telefono', datos: { ...d, telefono: null } }, [PREGUNTA.telefono]);
@@ -495,14 +495,14 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const yaOfrecidos = JSON.stringify(s.diasOfrecidos || []) === JSON.stringify(cercanos);
       // Domingo o festivo: no atendemos. Lleno o bloqueado a mano: se llenó.
       const cierre = agenda.dia(pedido).cierre;
-      const porQue = cierre === 'Festivo' ? 'es festivo y no atendemos' : cierre === 'Sin atención' ? 'no atendemos' : 'ya se llenó';
+      const porQue = cierre === 'Festivo' ? 'es festivo y no atendemos' : cierre === 'Sin atención' ? 'no atendemos' : 'ya no tenemos cupos disponibles';
       let texto;
       if (yaOfrecidos) {
-        texto = `Uy, el ${diaCorto(pedido)} tampoco me queda. Sigo teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
+        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} tampoco tenemos cupos disponibles. Seguimos teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
       } else if (cercanos.every((f) => f > pedido)) {
-        texto = `Uy, el ${diaCorto(pedido)} ${porQue}. Lo más pronto que tengo es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
+        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} ${porQue}. Lo más pronto que tenemos es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
       } else {
-        texto = `Uy, el ${diaCorto(pedido)} ${porQue}. Tengo el ${unaU(dias)}. ¿Cuál prefieres?`;
+        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} ${porQue}. Tenemos disponible el ${unaU(dias)}. ¿Cuál prefieres?`;
       }
       return esperar(sig, [texto]);
     }
@@ -512,9 +512,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const pedida = d.hora;
       d.hora = null;
       const sig = marcarSaludo({ ...s, datos: d, preguntando: 'hora', confirmando: false, sinAvance: 0 });
-      const intro = avance && primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌 ` : '';
       return esperar(sig, [
-        `${intro}Uy, a las ${horaCorta(pedida)} ya se llenó el ${diaCorto(d.fecha)}. Te queda libre ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`,
+        `A las ${horaCorta(pedida)} ya no tenemos cupo el ${diaCorto(d.fecha)}. Tenemos disponible ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`,
       ]);
     }
 
@@ -652,7 +651,9 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     if (ia && ia.activa && ia.redactar && r.estado === 'esperar') {
       try {
         const natural = await ia.redactar({ borrador: base, historial: [...historial, { rol: 'cliente', texto }], servicio: config.servicios[s.servicio].nombre });
-        if (natural && conservaDatos(base, natural) && !TONO_PROHIBIDO.test(natural)) final = natural;
+        const nombre = normalizar(String(s.datos.nombre || '').split(/\s+/)[0]);
+        const empiezaConNombre = nombre && normalizar(natural).startsWith(nombre);
+        if (natural && conservaDatos(base, natural) && !TONO_PROHIBIDO.test(natural) && !empiezaConNombre) final = natural;
         else if (natural) console.warn('IA: la redacción cambió datos o el tono, uso el texto original');
       } catch (err) {
         console.warn('IA: no pude redactar, uso el texto original:', err.message);
