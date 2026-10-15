@@ -370,7 +370,7 @@ function limpiarIA(ia, momento) {
   return r;
 }
 
-function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } = {}) {
+function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () => new Date() } = {}) {
   const resultado = (estado, siguiente, textos, extra = {}) => {
     const mensajes = textos.flatMap(partir).map((value) => ({ handler: 'show', params: { type: 'text', value } }));
     return {
@@ -540,7 +540,17 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
           sinAvance: 0,
         };
     const texto = String(mensaje || '').trim();
-    const historial = Array.isArray(s.historial) ? s.historial : [];
+    // Todo lo hablado con este lead (también en conversaciones anteriores), para que la IA tenga contexto.
+    const historial = memoria && s.lead ? memoria.ultimos(s.lead, 30) : Array.isArray(s.historial) ? s.historial : [];
+    const citasPendientes = (agenda.citasDelLead ? agenda.citasDelLead(s.lead) : []).map(
+      (c) => `${fechaLarga(c.fecha)} ${horaCorta(c.hora)} (${c.vehiculo || 'vehículo'} ${c.placa || ''})`
+    );
+    const textoDe = (r) => [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
+    const guardarEnMemoria = (respuesta) => {
+      if (!memoria || !s.lead) return;
+      memoria.agregar(s.lead, 'cliente', texto);
+      memoria.agregar(s.lead, 'taller', respuesta);
+    };
 
     let deIA = {};
     if (ia && ia.activa && texto) {
@@ -551,6 +561,7 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
             conocido: Object.fromEntries(CAMPOS.map((c) => [c, s.datos[c] || null])),
             pregunta: s.ultimaPregunta || '',
             historial,
+            citas: citasPendientes,
             hoy: momento.fecha,
             hora: momento.hora,
             servicio: config.servicios[s.servicio].nombre,
@@ -573,9 +584,12 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
       telefono: deReglas.telefono,
     };
     const confirma = deReglas.confirma ?? deIA.confirma;
-    if (deReglas.asesor || deIA.asesor) return asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor');
-    if (deReglas.despedida || deIA.despedida) {
-      return asesor('¡Con gusto! 🙌 Cuando quieras me escribes por aquí y te separo el cupo.', 'despedida');
+    if (deReglas.asesor || deIA.asesor || deReglas.despedida || deIA.despedida) {
+      const r = deReglas.asesor || deIA.asesor
+        ? asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor')
+        : asesor('¡Con gusto! 🙌 Cuando quieras me escribes por aquí y te separo el cupo.', 'despedida');
+      guardarEnMemoria(textoDe(r));
+      return r;
     }
 
     const antes = JSON.stringify(s.datos);
@@ -604,9 +618,15 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
         r.handlers = shows.slice(1);
       }
     }
+    // No repetir: si el bot iba a decir lo mismo que ya dijo en esta conversación, no insiste y pasa a un asesor.
+    const yaDicho = Array.isArray(s.yaDicho) ? s.yaDicho : [];
+    if (r.estado === 'esperar' && yaDicho.includes(normalizar(textoDe(r)))) {
+      console.log('Bot: iba a repetir el mismo mensaje, paso a asesor', { lead: s.lead });
+      r = asesor('Te paso con un asesor para ayudarte mejor 🙌', 'repetido');
+    }
     // La IA redacta las preguntas para que suenen naturales; si cambia algún dato, se usa el texto original.
     // La confirmación de la cita y el paso a asesor van siempre con el texto fijo (sin cambios de la IA).
-    const base = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
+    const base = textoDe(r);
     let final = base;
     if (ia && ia.activa && ia.redactar && r.estado === 'esperar') {
       try {
@@ -629,9 +649,11 @@ function crearConversacionLibre(agenda, { ia = null, reloj = () => new Date() } 
     }
 
     // Historial de la conversación (lo último), para darle contexto a la IA en el siguiente mensaje.
+    guardarEnMemoria(final);
     if (r.siguiente) {
       r.siguiente.historial = [...historial, { rol: 'cliente', texto }, { rol: 'taller', texto: final }].slice(-20);
       r.siguiente.ultimaPregunta = final.slice(0, 300);
+      r.siguiente.yaDicho = [...yaDicho, normalizar(base)].slice(-6);
     }
     return r;
   }

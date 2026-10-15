@@ -44,6 +44,15 @@ function abrir(archivo = ARCHIVO) {
     CREATE INDEX IF NOT EXISTS bloqueos_por_fecha ON bloqueos (fecha);
 
     -- En qué paso va cada cliente que está agendando por el bot de Kommo.
+    CREATE TABLE IF NOT EXISTS mensajes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead TEXT NOT NULL,                      -- ID del lead en Kommo
+      rol TEXT NOT NULL,                       -- cliente | taller
+      texto TEXT NOT NULL,
+      creado TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS mensajes_por_lead ON mensajes (lead, id);
+
     CREATE TABLE IF NOT EXISTS conversaciones (
       lead TEXT PRIMARY KEY,                   -- ID del lead en Kommo
       datos TEXT NOT NULL,                     -- JSON con el paso y lo que ya respondió

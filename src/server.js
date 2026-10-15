@@ -13,6 +13,7 @@ const { crearKommo, leerCuerpo } = require('./kommo');
 const { crearAtencion } = require('./atencion');
 const { crearIA } = require('./ia');
 const { crearRecordatorios } = require('./recordatorios');
+const { crearMemoria } = require('./memoria');
 const { crearConversacionLibre } = require('./libre');
 const vistas = require('./vistas');
 
@@ -48,7 +49,7 @@ const conversaciones = crearConversaciones(db);
 const bot = crearBot(agenda);
 const kommo = crearKommo();
 const ia = crearIA();
-const libre = crearConversacionLibre(agenda, { ia });
+const libre = crearConversacionLibre(agenda, { ia, memoria: crearMemoria(db) });
 const atenderBot = crearAtencion({ bot, conversaciones, kommo, libre });
 console.log(ia.activa ? 'IA de OpenRouter activa.' : 'IA sin configurar (OPENROUTER_API_KEY / OPENROUTER_MODEL): se usan solo reglas.');
 if (!kommo.activo) console.log('Kommo sin configurar: faltan KOMMO_SECRET y/o KOMMO_TOKEN. El bot no agendará.');

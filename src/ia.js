@@ -62,8 +62,8 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
   }
 
   // Devuelve el objeto con los datos o null si no se pudo.
-  async function extraer({ mensaje, conocido = {}, pregunta = '', historial = [], hoy, hora, servicio }) {
-    const conversacion = historial.slice(-12).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
+  async function extraer({ mensaje, conocido = {}, pregunta = '', historial = [], citas = [], hoy, hora, servicio }) {
+    const conversacion = historial.slice(-30).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
     if (!activa) return null;
     const cuerpo = {
       model: modelo,
@@ -72,7 +72,7 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
         { role: 'system', content: instrucciones({ hoy, hora, servicio }) },
         {
           role: 'user',
-          content: `Conversación hasta ahora:\n${conversacion || '(inicio)'}\n\nDatos que ya tenemos: ${JSON.stringify(conocido)}\nÚltimo mensaje del taller: "${pregunta}"\nMensaje nuevo del cliente: "${mensaje}"`,
+          content: `Conversación con este cliente (también de días anteriores):\n${conversacion || '(inicio)'}\n\nCitas que ya tiene agendadas: ${citas.length ? citas.join('; ') : 'ninguna'}\nDatos que ya tenemos: ${JSON.stringify(conocido)}\nÚltimo mensaje del taller: "${pregunta}"\nMensaje nuevo del cliente: "${mensaje}"`,
         },
       ],
     };
@@ -88,7 +88,7 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
   // Reescribe un borrador para que suene natural. Devuelve el texto o null.
   async function redactar({ borrador, historial = [], servicio = '' }) {
     if (!activa || !borrador) return null;
-    const conversacion = historial.slice(-12).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
+    const conversacion = historial.slice(-30).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
     const r = await pedir({
       model: modelo,
       temperature: 0.4,
@@ -100,6 +100,7 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
             `Servicio: ${servicio}.`,
             'Te doy un BORRADOR con lo que hay que decir. Reescríbelo natural, cálido y breve, como lo escribiría una persona por WhatsApp.',
             'Reglas: conserva EXACTAMENTE todos los datos (días, fechas, horas, precios, placas, nombres, dirección). No inventes nada, no ofrezcas otros horarios ni prometas nada que no esté en el borrador.',
+            'Lee la conversación: no repitas frases ni saludos que ya enviaste. Si ya dijiste algo parecido, dilo distinto y más corto.',
             'Máximo 3 frases cortas. Si el borrador es un resumen en líneas, mantenlo en líneas. Como mucho 2 emojis. Tutea. Responde SOLO con el texto del mensaje.',
           ].join('\n'),
         },

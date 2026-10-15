@@ -39,6 +39,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     todasLasCitas: db.prepare(`SELECT * FROM citas ORDER BY fecha, hora, puesto`),
     todosLosBloqueos: db.prepare(`SELECT * FROM bloqueos ORDER BY fecha, hora`),
     paraRecordar: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado IN ('AGENDADA', 'CONFIRMADA') AND kommo_lead IS NOT NULL AND recordada IS NULL ORDER BY hora`),
+    citasDelLead: db.prepare(`SELECT * FROM citas WHERE kommo_lead = ? AND fecha >= ? AND estado IN ('AGENDADA', 'CONFIRMADA') ORDER BY fecha, hora`),
     marcarRecordada: db.prepare(`UPDATE citas SET recordada = datetime('now') WHERE id = ?`),
     otrasDelLead: db.prepare(`UPDATE citas SET estado = 'CANCELADA' WHERE kommo_lead = ? AND id <> ? AND fecha >= ? AND estado IN ('AGENDADA', 'CONFIRMADA') AND recordada IS NOT NULL RETURNING *`),
   };
@@ -218,6 +219,8 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     // Recordatorios: citas activas de ese día que vinieron de Kommo y aún no se recordaron.
     paraRecordar: (fecha) => sql.paraRecordar.all(fecha),
     marcarRecordada: (id) => sql.marcarRecordada.run(id),
+    // Citas pendientes de un lead (para darle contexto a la IA).
+    citasDelLead: (lead) => (lead ? sql.citasDelLead.all(String(lead), ahora(reloj()).fecha) : []),
     // Reprogramar: si el cliente ya recibió el recordatorio y agenda otra vez, la cita nueva reemplaza la recordada.
     // Las demás citas del mismo cliente (otro carro, otro día) quedan todas activas.
     cancelarOtrasDelLead: (lead, idNueva) => (lead ? sql.otrasDelLead.all(String(lead), idNueva, ahora(reloj()).fecha) : []),

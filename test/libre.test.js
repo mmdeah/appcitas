@@ -294,3 +294,33 @@ test('caso real Dario: pedir cupo para mañana no es preguntar el horario, y "ma
   const [, horario] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123', '¿cuál es su horario de atención?']);
   assert.deepEqual(textos(horario).slice(0, 2), ['🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.']);
 });
+
+test('memoria: la IA recibe lo hablado antes con el lead (aunque la conversación anterior terminó) y sus citas', async () => {
+  const { crearMemoria } = require('../src/memoria');
+  const memoria = crearMemoria(db);
+  const vistos = [];
+  const ia = {
+    activa: true,
+    extraer: async ({ historial, citas }) => { vistos.push({ n: historial.length, citas }); return {}; },
+    redactar: async () => null,
+  };
+  const libre = crearConversacionLibre(agenda, { ia, memoria, reloj });
+  // Primera conversación: agenda y termina.
+  const [listo] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 10:30']);
+  assert.equal(listo.estado, 'listo');
+  // Conversación nueva (sin estado guardado): igual ve lo de antes y la cita que ya tiene.
+  await charla(libre, ['hola, otra pregunta']);
+  assert.equal(vistos[1].n, 2);
+  assert.match(vistos[1].citas[0], /jueves 8 de octubre/);
+  assert.deepEqual(memoria.ultimos('55').map((m) => m.rol), ['cliente', 'taller', 'cliente', 'taller']);
+});
+
+test('no repite el mismo mensaje: si iba a decir lo mismo otra vez, pasa a asesor', async () => {
+  agenda.bloquear({ fecha: '2026-10-08', motivo: 'Lleno' });
+  const libre = crearConversacionLibre(agenda, { reloj });
+  const [primero, otraVez] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 9:30', 'el jueves entonces']);
+  assert.equal(primero.estado, 'esperar');
+  assert.match(textos(primero).join(' '), /jueves 8 de octubre no tengo cupo/i);
+  assert.equal(otraVez.estado, 'asesor');
+  assert.equal(otraVez.data.motivo, 'repetido');
+});
