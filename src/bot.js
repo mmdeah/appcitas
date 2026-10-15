@@ -203,7 +203,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
   // Sugiere 2 horas: las que tienen más cupo libre (a igual cupo, las más temprano).
   function ofrecerHoras(s, acuse) {
     const libres = agenda.horasLibres(s.fecha);
-    if (!libres.length) return ofrecerDias(s, 'Ese día ya se llenó 😕');
+    if (!libres.length) return ofrecerDias(s, 'Uy, ese día ya se llenó.');
     const elegidas = [...libres]
       .sort((a, b) => b.libres - a.libres || a.hora.localeCompare(b.hora))
       .slice(0, 2)
@@ -297,7 +297,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
         );
       }
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        return ofrecerHoras({ ...s, hora: null }, 'Esa hora se acaba de ocupar 😕');
+        return ofrecerHoras({ ...s, hora: null }, 'Uy, esa hora se acaba de llenar.');
       }
       return asesor('Tuve un problema agendando. Un asesor te escribe 🙌', err.codigo);
     }
@@ -355,7 +355,7 @@ function crearBot(agenda, { reloj = () => new Date() } = {}) {
           return { fecha, etiqueta: etiquetaDia(fecha, hoy) };
         });
         const pedido = elegirDia(mensaje, calendario, hoy);
-        if (pedido) return ofrecerDias(avanzar(s), 'Ese día no tengo cupo 😕 Te propongo los más cercanos', pedido.fecha);
+        if (pedido) return ofrecerDias(avanzar(s), 'Uy, ese día ya se llenó. Te propongo los más cercanos', pedido.fecha);
         return noEntendi(s, (x) => pedirDiaEscrito(x, 'No te entendí 🙈'));
       }
       case 'hora': {

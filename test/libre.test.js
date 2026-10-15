@@ -162,11 +162,11 @@ test('hora ocupada o día sin cupo: propone opciones reales', async () => {
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '10:30', cliente: 'Y', telefono: '3000000002' });
   const libre = crearConversacionLibre(agenda, { reloj });
   const [ocupada] = await charla(libre, ['el jueves a las 10:30']);
-  assert.deepEqual(textos(ocupada), ['A las 10:30 a. m. ya no tengo cupo el jueves 8 😕', '¿Te sirve 8:30, 9:30 u 11:30 a. m.?']);
+  assert.deepEqual(textos(ocupada), ['Uy, a las 10:30 a. m. ya se llenó el jueves 8.', 'Te queda libre 8:30, 9:30 u 11:30 a. m. ¿Cuál prefieres?']);
   assert.equal(ocupada.siguiente.preguntando, 'hora');
 
   const [domingo] = await charla(libre, ['el domingo']);
-  assert.deepEqual(textos(domingo), ['El domingo 11 de octubre no tengo cupo 😕', '¿Te sirve el viernes 9, el sábado 10 o el martes 13?']);
+  assert.deepEqual(textos(domingo), ['Uy, el domingo 11 no atendemos. Tengo el viernes 9, sábado 10 o martes 13.', '¿Cuál prefieres?']);
   assert.equal(domingo.siguiente.preguntando, 'fecha');
   assert.equal(domingo.siguiente.datos.fecha, null);
 });
@@ -318,9 +318,13 @@ test('memoria: la IA recibe lo hablado antes con el lead (aunque la conversació
 test('no repite el mismo mensaje: si iba a decir lo mismo otra vez, pasa a asesor', async () => {
   agenda.bloquear({ fecha: '2026-10-08', motivo: 'Lleno' });
   const libre = crearConversacionLibre(agenda, { reloj });
-  const [primero, otraVez] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 9:30', 'el jueves entonces']);
+  const [primero, otraVez, tercera] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 9:30', 'el jueves entonces', 'el jueves porfa']);
   assert.equal(primero.estado, 'esperar');
-  assert.match(textos(primero).join(' '), /jueves 8 de octubre no tengo cupo/i);
-  assert.equal(otraVez.estado, 'asesor');
-  assert.equal(otraVez.data.motivo, 'repetido');
+  assert.match(textos(primero).join(' '), /Uy, el jueves 8 ya se llenó/);
+  assert.doesNotMatch(textos(primero).join(' '), /😕|qué pena/);
+  // La segunda vez no dice lo mismo: avisa que sigue lleno y que siguen esos días.
+  assert.match(textos(otraVez).join(' '), /tampoco me queda. Sigo teniendo/);
+  // Si ya no hay nada nuevo que decir, no insiste: pasa a asesor.
+  assert.equal(tercera.estado, 'asesor');
+  assert.equal(tercera.data.motivo, 'repetido');
 });

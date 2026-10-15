@@ -41,9 +41,14 @@ const mayuscula = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 // Parte un texto en mensajes de máximo 80 caracteres (límite de Kommo), sin cortar palabras.
 function partir(texto) {
   if ([...String(texto)].length <= MAX_TEXTO) return [String(texto)];
-  // Primero se intenta cortar entre frases (después de ?, ! o un emoji), no a mitad de "a. m.".
-  const frases = String(texto).split(/(?<=[?!]|\p{Extended_Pictographic})\s+/u);
-  if (frases.length > 1 && frases.every((f) => [...f].length <= MAX_TEXTO)) return empacarFrases(frases);
+  // Primero se corta entre frases: después de . ? ! o un emoji, cuando sigue una frase nueva (mayúscula, ¿, ¡).
+  // "a. m." no se corta porque después viene minúscula. Solo una frase muy larga se corta por palabras.
+  const frases = String(texto).split(/(?<=[.?!]|\p{Extended_Pictographic})\s+(?=[¿¡\p{Lu}\p{Extended_Pictographic}])/u);
+  if (frases.length > 1) return empacarFrases(frases.flatMap((f) => ([...f].length <= MAX_TEXTO ? [f] : porPalabras(f))));
+  return porPalabras(texto);
+}
+
+function porPalabras(texto) {
   const partes = [];
   for (const linea of String(texto).split('\n')) {
     let actual = '';
@@ -58,6 +63,12 @@ function partir(texto) {
   }
   return partes;
 }
+
+// Termina en punto sin duplicarlo ("11:30 a. m." ya lo trae).
+const conPunto = (t) => (/[.!?]$/.test(t) ? t : `${t}.`);
+
+// Frases y caritas que no van con el tono del taller (si la IA las usa, se manda el texto original).
+const TONO_PROHIBIDO = /qu[eé] pena|lamentablemente|desafortunadamente|disculp|lo siento|lo lamento|😕|😔|😢|😞|🙁|☹/i;
 
 // ¿La versión redactada conserva todos los datos del borrador? (horas, precios, placas, números de día)
 function conservaDatos(base, nuevo) {
@@ -447,8 +458,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
         const otras = horasCercanas(d.fecha, d.hora);
         const sig = { ...s, confirmando: false, preguntando: 'hora', datos: { ...d, hora: null } };
-        if (!otras.length) return esperar({ ...sig, preguntando: 'fecha', datos: { ...sig.datos, fecha: null } }, ['Ese horario se acaba de ocupar 😕 ¿Qué otro día te sirve?']);
-        return esperar(sig, ['Ese horario se acaba de ocupar 😕', `Tengo libre: ${listaHoras(otras)}. ¿Cuál prefieres?`]);
+        if (!otras.length) return esperar({ ...sig, preguntando: 'fecha', datos: { ...sig.datos, fecha: null } }, ['Uy, ese horario se acaba de llenar. ¿Qué otro día te sirve?']);
+        return esperar(sig, ['Uy, ese horario se acaba de llenar.', `Te queda libre ${conPunto(listaHoras(otras))} ¿Cuál prefieres?`]);
       }
       if (err.codigo === 'DATOS' && /tel[eé]fono/i.test(err.message)) {
         return esperar({ ...s, confirmando: false, preguntando: 'telefono', datos: { ...d, telefono: null } }, [PREGUNTA.telefono]);
@@ -477,13 +488,23 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
         .sort((a, b) => Math.abs(diasEntre(pedido, a)) - Math.abs(diasEntre(pedido, b)) || a.localeCompare(b))
         .slice(0, 3)
         .sort();
-      d.fecha = null;
-      d.hora = null;
-      const sig = marcarSaludo({ ...s, datos: d, preguntando: 'fecha', confirmando: false, sinAvance: 0 });
+      d.fecha = null; // la hora que pidió se guarda: si elige otro día, se intenta a esa misma hora
+      const sig = marcarSaludo({ ...s, datos: d, preguntando: 'fecha', confirmando: false, sinAvance: 0, diasOfrecidos: cercanos });
       if (!cercanos.length) return asesor('Por ahora no tengo cupos libres. Un asesor te escribe 🙌', 'sin_cupos');
-      const dias = cercanos.map((f) => `el ${diaCorto(f)}`);
-      const opciones = dias.length > 1 ? `${dias.slice(0, -1).join(', ')} o ${dias[dias.length - 1]}` : dias[0];
-      return esperar(sig, [`El ${fechaLarga(pedido)} no tengo cupo 😕 ¿Te sirve ${opciones}?`]);
+      const dias = cercanos.map(diaCorto);
+      const yaOfrecidos = JSON.stringify(s.diasOfrecidos || []) === JSON.stringify(cercanos);
+      // Domingo o festivo: no atendemos. Lleno o bloqueado a mano: se llenó.
+      const cierre = agenda.dia(pedido).cierre;
+      const porQue = cierre === 'Festivo' ? 'es festivo y no atendemos' : cierre === 'Sin atención' ? 'no atendemos' : 'ya se llenó';
+      let texto;
+      if (yaOfrecidos) {
+        texto = `Uy, el ${diaCorto(pedido)} tampoco me queda. Sigo teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
+      } else if (cercanos.every((f) => f > pedido)) {
+        texto = `Uy, el ${diaCorto(pedido)} ${porQue}. Lo más pronto que tengo es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
+      } else {
+        texto = `Uy, el ${diaCorto(pedido)} ${porQue}. Tengo el ${unaU(dias)}. ¿Cuál prefieres?`;
+      }
+      return esperar(sig, [texto]);
     }
     // La hora pedida tiene que estar libre ese día: se ofrecen las más cercanas.
     if (d.fecha && d.hora && !agenda.horasLibres(d.fecha).some((h) => h.hora === d.hora)) {
@@ -493,7 +514,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const sig = marcarSaludo({ ...s, datos: d, preguntando: 'hora', confirmando: false, sinAvance: 0 });
       const intro = avance && primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌 ` : '';
       return esperar(sig, [
-        `${intro}A las ${horaCorta(pedida)} ya no tengo cupo el ${diaCorto(d.fecha)} 😕 ¿Te sirve ${opcionesDeHora(otras)}?`,
+        `${intro}Uy, a las ${horaCorta(pedida)} ya se llenó el ${diaCorto(d.fecha)}. Te queda libre ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`,
       ]);
     }
 
@@ -508,11 +529,11 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       } else if (faltan[0] === 'fecha') {
         const dias = unaU(diasConCupoTexto(momento.fecha));
         pregunta = faltan.includes('hora')
-          ? `¿Qué día y a qué hora te queda bien? Tengo espacio ${dias}, de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${horaCorta(config.horario[1]?.hasta || '15:30')}.`
+          ? `¿Qué día y a qué hora te queda bien? Tengo espacio ${dias}, de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${conPunto(horaCorta(config.horario[1]?.hasta || '15:30'))}`
           : `¿Para qué día te agendo${d.hora ? ` a las ${horaCorta(d.hora)}` : ''}? Tengo espacio ${dias}.`;
       } else if (faltan[0] === 'hora') {
         const libres = agenda.horasLibres(d.fecha).map((h) => h.hora);
-        pregunta = `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Tengo libre ${rangosDeHoras(libres)}.`;
+        pregunta = `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Tengo libre ${conPunto(rangosDeHoras(libres))}`;
       } else if (faltan.length === 2) {
         pregunta = `¿Me dices ${NOMBRE_CAMPO[faltan[0]]} y ${NOMBRE_CAMPO[faltan[1]]}?`;
       } else {
@@ -631,8 +652,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     if (ia && ia.activa && ia.redactar && r.estado === 'esperar') {
       try {
         const natural = await ia.redactar({ borrador: base, historial: [...historial, { rol: 'cliente', texto }], servicio: config.servicios[s.servicio].nombre });
-        if (natural && conservaDatos(base, natural)) final = natural;
-        else if (natural) console.warn('IA: la redacción cambió datos, uso el texto original');
+        if (natural && conservaDatos(base, natural) && !TONO_PROHIBIDO.test(natural)) final = natural;
+        else if (natural) console.warn('IA: la redacción cambió datos o el tono, uso el texto original');
       } catch (err) {
         console.warn('IA: no pude redactar, uso el texto original:', err.message);
       }
