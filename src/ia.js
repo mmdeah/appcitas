@@ -29,6 +29,8 @@ function instrucciones({ hoy, hora, servicio }) {
 
 function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.OPENROUTER_MODEL, espera = 120000, intentos = 3 } = {}) {
   const activa = Boolean(clave && modelo);
+  // Los Claude de la generación 5 rechazan (error 400) una temperatura distinta a la de fábrica: no se envía.
+  const temperatura = (t) => (/claude[-_. a-z]*5/i.test(String(modelo)) ? {} : { temperature: t });
 
   // Reintenta si OpenRouter está ocupado, falla o se demora (5 s, luego 15 s de pausa).
   async function pedir(cuerpo) {
@@ -67,7 +69,7 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
     if (!activa) return null;
     const cuerpo = {
       model: modelo,
-      temperature: 0,
+      ...temperatura(0),
       messages: [
         { role: 'system', content: instrucciones({ hoy, hora, servicio }) },
         {
@@ -91,7 +93,7 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
     const conversacion = historial.slice(-30).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
     const r = await pedir({
       model: modelo,
-      temperature: 0.4,
+      ...temperatura(0.4),
       messages: [
         {
           role: 'system',
