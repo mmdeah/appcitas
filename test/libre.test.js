@@ -109,9 +109,10 @@ test('con IA: lee el mensaje, agenda y la respuesta suena natural sin cambiar lo
   assert.match(textos(listo)[0], /^✅ ¡Listo, Ana!/);
   const [pregunta] = await charla(crearConversacionLibre(agenda, { ia: { ...ia, extraer: async () => ({ nombre: 'Ana Gómez' }) }, reloj }), ['soy ana']);
   assert.match(textos(pregunta)[0], /^¡Hola Ana!/);
-  // El paso a asesor también va con el texto fijo.
+  // Al pasar a asesor no se le escribe nada al cliente.
   const [asesor] = await charla(crearConversacionLibre(agenda, { ia: { ...ia, extraer: async () => ({}) }, reloj }), ['hola']);
-  assert.deepEqual(textos(asesor), ['Dame un momento, ya te escribe un asesor 🙌']);
+  assert.equal(asesor.estado, 'asesor');
+  assert.deepEqual(textos(asesor), []);
 
   // Si la IA cambia una hora, se usa el texto original.
   const tramposa = { ...ia, redactar: async ({ borrador }) => borrador.replace('2:30', '4:00') };
@@ -157,17 +158,18 @@ test('si la IA falla, sigue con reglas sin romperse', async () => {
   }
 });
 
-test('hora ocupada o día sin cupo: propone opciones reales', async () => {
+test('hora ocupada o día sin cupo: ofrece UN solo turno, nunca la lista', async () => {
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '10:30', cliente: 'X', telefono: '3000000001' });
   agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '10:30', cliente: 'Y', telefono: '3000000002' });
   const libre = crearConversacionLibre(agenda, { reloj });
   const [ocupada] = await charla(libre, ['el jueves a las 10:30']);
-  assert.deepEqual(textos(ocupada), ['A las 10:30 a. m. ya no tenemos cupo el jueves 8.', 'Tenemos disponible 8:30, 9:30 u 11:30 a. m. ¿Cuál prefieres?']);
-  assert.equal(ocupada.siguiente.preguntando, 'hora');
+  assert.deepEqual(textos(ocupada), ['El jueves 8 a las 10:30 a. m. no tengo turno disponible.', 'Te puedo ofrecer a las 9:30 a. m. ¿Te sirve?']);
+  assert.equal(ocupada.siguiente.preguntando, 'propuesta');
+  assert.deepEqual(ocupada.siguiente.propuesta, { fecha: '2026-10-08', hora: '09:30' });
 
   const [domingo] = await charla(libre, ['el domingo']);
-  assert.deepEqual(textos(domingo), ['El domingo 11 no atendemos.', 'Tenemos disponible el viernes 9, sábado 10 o martes 13. ¿Cuál prefieres?']);
-  assert.equal(domingo.siguiente.preguntando, 'fecha');
+  assert.deepEqual(textos(domingo), ['El domingo 11 no atendemos. Te puedo ofrecer el martes 13 a las 8:30 a. m.', '¿Te sirve?']);
+  assert.equal(domingo.siguiente.preguntando, 'propuesta');
   assert.equal(domingo.siguiente.datos.fecha, null);
 });
 
@@ -190,9 +192,9 @@ test('"Sábado 9 am" es el sábado a las 9, no el día 9', async () => {
   const [listo] = await charla(libre, ['Mario Rincón\nCQW979\nNissan March\nSábado 9 am']);
   assert.equal(listo.estado, 'listo');
   assert.deepEqual([listo.cita.fecha, listo.cita.hora], ['2026-10-17', '09:00']);
-  // Si falta el día, lo pregunta claro.
+  // Si falta el día, ofrece el primero que tenga esa hora libre.
   const [dia] = await charla(libre, ['Mario Rincón, Nissan March, CQW979, a las 9 am']);
-  assert.match(textos(dia).join(' '), /¿Para qué día te agendo a las 9:00 a\. m\.\? Tengo espacio mañana miércoles 14, el jueves 15 o el viernes 16\./);
+  assert.match(textos(dia).join(' '), /¿Te sirve mañana miércoles 14 a las 9:00 a\. m\.\?/);
 });
 
 test('Kommo con Paso = seguir y sin conversación guardada usa el texto libre', async () => {
@@ -246,14 +248,16 @@ test('preguntas comunes en medio de la conversación: responde y sigue con la ci
   assert.equal(primero.estado, 'esperar');
   assert.equal(donde.estado, 'esperar');
   assert.match(textos(donde)[0], /Av\. 6 Norte #18-22/);
-  assert.match(textos(donde).join(' '), /¿Qué día y a qué hora/);
+  assert.match(textos(donde).join(' '), /¿Te sirve hoy a las 10:30 a\. m\.\?/);
   assert.doesNotMatch(textos(donde).join(' '), /No te entendí|Perfecto/);
 
   const [precio] = await charla(libre, ['cuánto vale la revisión? el jueves a las 10:30, Ana Ruiz, Kia Rio 2020, QWE123']);
   assert.equal(precio.estado, 'listo');
 
+  // El precio, la duración u otra cosa que no sea agendar, dirección u horario: el bot se apaga callado.
   const [soloPrecio] = await charla(libre, ['¿cuánto cuesta?']);
-  assert.match(textos(soloPrecio)[0], /\$60\.000/);
+  assert.equal(soloPrecio.estado, 'asesor');
+  assert.deepEqual(textos(soloPrecio), []);
 });
 
 test('las citas del mismo cliente quedan todas activas', async () => {
@@ -290,10 +294,12 @@ test('caso real Dario: pedir cupo para mañana no es preguntar el horario, y "ma
   assert.equal(manana.siguiente.datos.fecha, '2026-10-14');
   assert.equal(adios.estado, 'asesor');
   assert.equal(adios.data.motivo, 'despedida');
-  assert.match(textos(adios)[0], /Cuando quieras/);
+  assert.deepEqual(textos(adios), []); // se despide: el bot no responde nada
   // Preguntar el horario de atención sí lo responde, en frases completas.
   const [, horario] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123', '¿cuál es su horario de atención?']);
-  assert.deepEqual(textos(horario).slice(0, 2), ['🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.']);
+  assert.equal(textos(horario)[0], '🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.');
+  // Nunca se cuenta el rango de horas de las citas (el taller no debe verse vacío).
+  assert.doesNotMatch(textos(horario).join(' '), /8:30 a\. m\. a 3:30|hasta las/);
 });
 
 test('memoria: la IA recibe lo hablado antes con el lead (aunque la conversación anterior terminó) y sus citas', async () => {
@@ -319,15 +325,13 @@ test('memoria: la IA recibe lo hablado antes con el lead (aunque la conversació
 test('no repite el mismo mensaje: si iba a decir lo mismo otra vez, pasa a asesor', async () => {
   agenda.bloquear({ fecha: '2026-10-08', motivo: 'Lleno' });
   const libre = crearConversacionLibre(agenda, { reloj });
-  const [primero, otraVez, tercera] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 9:30', 'el jueves entonces', 'el jueves porfa']);
+  const [primero, otraVez] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 9:30', 'el jueves a las 9:30']);
   assert.equal(primero.estado, 'esperar');
-  assert.match(textos(primero).join(' '), /^El jueves 8 ya no tenemos cupos disponibles\./);
+  assert.match(textos(primero).join(' '), /^El jueves 8 no tenemos turnos disponibles\. Te puedo ofrecer el viernes 9 a las 9:30 a\. m\./);
   assert.doesNotMatch(textos(primero).join(' '), /😕|qué pena|\bUy\b|Juan/);
-  // La segunda vez no dice lo mismo: avisa que sigue lleno y que siguen esos días.
-  assert.match(textos(otraVez).join(' '), /^El jueves 8 tampoco tenemos cupos disponibles\. Seguimos teniendo/);
-  // Si ya no hay nada nuevo que decir, no insiste: pasa a asesor.
-  assert.equal(tercera.estado, 'asesor');
-  assert.equal(tercera.data.motivo, 'repetido');
+  // Si iba a decir exactamente lo mismo, no insiste: se apaga callado.
+  assert.equal(otraVez.estado, 'asesor');
+  assert.equal(otraVez.data.motivo, 'repetido');
 });
 
 test('simulación de casos raros: fechas con mes, placa correcta, otros servicios, "sí" y celular en el nombre', async () => {
@@ -347,17 +351,18 @@ test('simulación de casos raros: fechas con mes, placa correcta, otros servicio
   assert.equal((await una(['tienen pastillas de freno para un duster?']))[0].data.motivo, 'otro_servicio');
   assert.equal((await una(['quiero agendar dos carros el viernes a las 9']))[0].data.motivo, 'varios_vehiculos');
   assert.equal((await una(['quiero hablar con alguien']))[0].data.motivo, 'pidio_asesor');
-  // "Sí" cuando se ofrecieron varios días: pregunta cuál.
-  const [, si] = await una(['Laura, Mazda 2 2020, PLM456, el domingo a las 10', 'sí']);
-  assert.equal(si.estado, 'esperar');
-  assert.match(textos(si)[0], /^¿Cuál día te sirve: el /);
+  // "Sí" al turno ofrecido: queda agendado en ese turno.
+  const [ofrecido, si] = await una(['Laura, Mazda 2 2020, PLM456, el domingo a las 10', 'sí']);
+  assert.equal(si.estado, 'listo');
+  assert.deepEqual([si.cita.fecha, si.cita.hora], [ofrecido.siguiente.propuesta.fecha, ofrecido.siguiente.propuesta.hora]);
   // El celular dentro del mensaje no impide reconocer el nombre.
   const [marta] = await una(['Marta 3105551234, Ford Fiesta 2014, MNB987, el jueves a las 2']);
   assert.equal(marta.estado, 'listo');
   assert.equal(marta.cita.cliente, 'Marta');
   // Fuera del horario de citas se dice el horario.
   const [tarde] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el viernes a las 6 pm']);
-  assert.match(textos(tarde)[0], /^Las citas son de 8:30 a\. m\. a 3:30 p\. m\./);
+  // Fuera del horario: se ofrece UN turno, sin contar el rango de horas.
+  assert.deepEqual(textos(tarde), ['El viernes 9 a las 6:00 p. m. no tengo turno disponible.', 'Te puedo ofrecer a las 3:30 p. m. ¿Te sirve?']);
 });
 
 test('con IA: si el mensaje es raro o fuera de lugar y no trae datos, corta y pasa a asesor; si trae datos, sigue', async () => {
@@ -397,10 +402,15 @@ test('al cortar no se le escribe nada al cliente: termina el bot, pasa el lead a
   assert.match(notas[0], /no respondió/);
 });
 
-test('sugiere la hora más temprana y un "sí" la acepta', async () => {
+test('sugiere la hora más temprana; "sí" la acepta y "no" ofrece la siguiente', async () => {
   const libre = crearConversacionLibre(crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
   const [pregunta, si] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves', 'sí']);
-  assert.match(textos(pregunta).join(' '), /Te sugiero a las 8:30 a\. m\., que es lo más temprano/);
+  assert.match(textos(pregunta).join(' '), /¿Te sirve el jueves 8 a las 8:30 a\. m\.\?/);
   assert.equal(si.estado, 'listo');
   assert.equal(si.cita.hora, '08:30');
+
+  const otra = crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
+  const [, no, listo] = await charla(otra, ['Ana Ruiz, Kia Rio 2020, QWE123, el jueves', 'no me sirve', 'listo']);
+  assert.match(textos(no)[0], /^Entonces te puedo ofrecer el jueves 8 a las 9:00 a\. m\. ¿Te sirve\?$/);
+  assert.equal(listo.cita.hora, '09:00');
 });

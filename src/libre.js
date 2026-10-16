@@ -242,16 +242,9 @@ function preguntaFrecuente(texto, servicio) {
   if (/\b(donde|direccion|ubicad\w*|ubicacion|como llego|como llegar|en que parte|que barrio)\b/.test(t)) {
     respuestas.push(`📍 Estamos en la ${config.direccion}.`);
   }
-  if (!otroServicio && /\b(cuanto (vale|cuesta|es|sale|cobran)|precio|valor|costo)\b/.test(t)) {
-    respuestas.push(`💰 ${s.nombre}: ${String(s.precio).replace(/^Precio:\s*/i, '')}.`.replace(/\.\.$/, '.'));
-  }
   // "¿Para mañana no tienes en ningún horario?" es pedir cupo, no preguntar el horario de atención.
   if (/\b(horarios? de atencion|que horario (tienen|manejan)|cual es (el|su) horario|a que hora (abren|cierran|atienden)|hasta que hora (atienden|abren|trabajan)|que dias (atienden|trabajan|abren)|(atienden|trabajan|abren) (los |el )?(sabados?|domingos?|festivos?))\b/.test(t)) {
-    respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.');
-  }
-  if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
-    const min = s.duracionMinutos;
-    respuestas.push(`⏱️ La ${s.corto.toLowerCase()} dura aprox. ${min >= 60 ? `${min / 60} horas` : `${min} minutos`}.`);
+    respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.');
   }
   return respuestas.length ? respuestas : null;
 }
@@ -350,9 +343,11 @@ function extraerConReglas(textoOriginal, s, momento) {
   const hora = horaEscrita(t, s.preguntando === 'hora');
   if (hora) r.hora = hora;
 
-  if (/^(si|sii|siii|dale|listo|ok|okey|confirmo|confirmado|claro|de una|perfecto|correcto|esta bien|asi esta bien|si senor|si senora)\b/.test(t)) {
+  if (/^(no|cambia|cambiar|mejor|otro|otra)\b/.test(t) || /\bno me (sirve|queda|puedo)\b/.test(t)) {
+    r.confirma = false;
+  } else if (/^(si|sii|siii|dale|listo|ok|okey|confirmo|confirmado|claro|de una|perfecto|correcto|esta bien|asi esta bien|si senor|si senora|me sirve|me queda bien|de acuerdo|vale|bueno|agendame|agendalo|hagale)\b/.test(t)) {
     r.confirma = true;
-  } else if (/^(no|cambia|cambiar|mejor)\b/.test(t)) r.confirma = false;
+  }
   if (quiereAsesor(texto)) r.asesor = true;
   // "Mañana te confirmo", "luego te aviso", "gracias, lo pienso": no quiere agendar ahora.
   if (/\b(te|le) (confirmo|confirmaria|aviso|avisaria|escribo|escribiria|digo|diria|cuento|contaria)\b|\b(lo|la) (pienso|voy a pensar|reviso)\b|\b(luego|despues|mas tarde|otro dia) (te|le|les) (escribo|aviso|confirmo)\b|^(muchas )?gracias[.! ]*$|\bmuchas gracias\b.*$/.test(t) && !r.placa && !r.hora) {
@@ -485,112 +480,120 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     } catch (err) {
       if (!(err instanceof ErrorAgenda)) throw err;
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        const otras = horasCercanas(d.fecha, d.hora);
-        const sig = { ...s, confirmando: false, preguntando: 'hora', datos: { ...d, hora: null } };
-        if (!otras.length) return esperar({ ...sig, preguntando: 'fecha', datos: { ...sig.datos, fecha: null } }, ['Ese horario se acaba de ocupar. ¿Qué otro día te sirve?']);
-        return esperar(sig, ['Ese horario se acaba de ocupar.', `Tenemos disponible ${conPunto(listaHoras(otras))} ¿Cuál prefieres?`]);
+        const turno = turnoParaOfrecer({ desde: d.fecha, hora: d.hora, excluir: [`${d.fecha} ${d.hora}`, ...(s.rechazadas || [])] });
+        if (!turno) return asesor('', 'sin_cupos');
+        const sig = { ...s, confirmando: false, preguntando: 'propuesta', propuesta: turno, datos: { ...d, fecha: null, hora: null } };
+        return esperar(sig, [`Ese horario se acaba de ocupar. Te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`]);
       }
       if (err.codigo === 'DATOS' && /tel[eé]fono/i.test(err.message)) {
         return esperar({ ...s, confirmando: false, preguntando: 'telefono', datos: { ...d, telefono: null } }, [PREGUNTA.telefono]);
       }
-      return asesor('Tuve un problema agendando. Un asesor te escribe 🙌', err.codigo);
+      return asesor('', err.codigo);
     }
+  }
+
+  // Un solo turno para ofrecer (nunca la lista completa: el taller no debe verse vacío).
+  // Busca desde "desde" (o desde hoy) el primer día con cupo; ese día, la hora pedida si está libre,
+  // la más cercana a la pedida (en empate, la más temprana) o, si no pidió hora, la más temprana.
+  function turnoParaOfrecer({ desde = null, hora = null, excluir = [] } = {}) {
+    const hoy = ahora(reloj()).fecha;
+    const buscar = (inicio) => {
+      for (let i = 0; i <= DIAS_EN_VENTANA + 1; i++) {
+        const fecha = sumarDias(inicio, i);
+        const libres = agenda
+          .horasLibres(fecha)
+          .map((h) => h.hora)
+          .filter((h) => !excluir.includes(`${fecha} ${h}`));
+        if (!libres.length) continue;
+        const elegida = hora
+          ? [...libres].sort((a, b) => Math.abs(aMinutos(a) - aMinutos(hora)) - Math.abs(aMinutos(b) - aMinutos(hora)) || a.localeCompare(b))[0]
+          : libres[0];
+        return { fecha, hora: elegida };
+      }
+      return null;
+    };
+    return (desde && desde > hoy && buscar(desde)) || buscar(hoy);
+  }
+
+  // "hoy a las 2:00 p. m.", "mañana jueves 15 a las 8:30 a. m.", "el viernes 16 a las 9:00 a. m."
+  function textoTurno(t) {
+    const hoy = ahora(reloj()).fecha;
+    const dia = t.fecha === hoy ? 'hoy' : t.fecha === sumarDias(hoy, 1) ? `mañana ${diaCorto(t.fecha)}` : `el ${diaCorto(t.fecha)}`;
+    return `${dia} a las ${horaCorta(t.hora)}`;
   }
 
   // Revisa los datos y decide qué decir. "s" ya trae los datos combinados.
   function decidir(s, avance, { conPregunta = false } = {}) {
     const momento = ahora(reloj());
     const d = { ...s.datos };
-    const avisos = [];
+    const excluir = Array.isArray(s.rechazadas) ? s.rechazadas : [];
 
     // Saludo corto según lo que pasó con este mensaje.
     const primerNombre = d.nombre ? d.nombre.split(/\s+/)[0] : '';
-    const saludo = conPregunta ? '' : !avance ? 'No te entendí 🙈' : primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌` : 'Perfecto 👍';
+    const saludo = conPregunta ? '' : !avance ? '' : primerNombre && !s.saludado ? `Gracias, ${primerNombre} 🙌` : 'Perfecto 👍';
     const marcarSaludo = (sig) => (primerNombre ? { ...sig, saludado: true } : sig);
+    const ofrecer = (sig, turno, texto) => esperar({ ...sig, preguntando: 'propuesta', propuesta: turno, confirmando: false, sinAvance: 0 }, [texto]);
 
-    // El día pedido tiene que tener cupo: si no, se proponen los 3 días con cupo más cercanos.
+    // El día pedido no tiene turnos: se dice por qué y se ofrece UN turno (el más próximo).
     if (d.fecha && !agenda.horasLibres(d.fecha).length) {
       const pedido = d.fecha;
-      const cercanos = agenda
-        .diasConCupo(DIAS_EN_VENTANA)
-        .map((x) => x.fecha)
-        .sort((a, b) => Math.abs(diasEntre(pedido, a)) - Math.abs(diasEntre(pedido, b)) || a.localeCompare(b))
-        .slice(0, 3)
-        .sort();
-      d.fecha = null; // la hora que pidió se guarda: si elige otro día, se intenta a esa misma hora
-      const sig = marcarSaludo({ ...s, datos: d, preguntando: 'fecha', confirmando: false, sinAvance: 0, diasOfrecidos: cercanos });
-      if (!cercanos.length) return asesor('Por ahora no tengo cupos libres. Un asesor te escribe 🙌', 'sin_cupos');
-      // Si pidió otro mes, el último día ofrecido lleva el mes ("…o miércoles 28 de octubre").
-      const dias = cercanos.map((f, i) => (i === cercanos.length - 1 && pedido.slice(0, 7) !== f.slice(0, 7) ? fechaLarga(f) : diaCorto(f)));
-      const yaOfrecidos = JSON.stringify(s.diasOfrecidos || []) === JSON.stringify(cercanos);
-      // Domingo o festivo: no atendemos. Lleno o bloqueado a mano: se llenó.
-      // Por qué no se puede: ya pasó, está fuera del plazo, domingo/festivo, o se llenó.
       const cierre = agenda.dia(pedido).cierre;
       const adelante = diasEntre(momento.fecha, pedido);
+      const plazo = config.diasAdelante || 14;
       const porQue =
         adelante < 0 ? 'ya pasó'
-        : adelante > (config.diasAdelante || 14) ? 'todavía no tiene agenda abierta'
+        : adelante > plazo ? 'todavía no tiene agenda abierta'
         : cierre === 'Festivo' ? 'es festivo y no atendemos'
         : cierre === 'Sin atención' ? 'no atendemos'
-        : 'ya no tenemos cupos disponibles';
-      // Si es de otro mes se dice con el mes ("el 20 de diciembre"), para que no se confunda.
+        : 'no tenemos turnos disponibles';
       const elPedido = pedido.slice(0, 7) === momento.fecha.slice(0, 7) ? `el ${diaCorto(pedido)}` : `el ${fechaLarga(pedido)}`;
-      let texto;
-      if (yaOfrecidos) {
-        texto = `${mayuscula(elPedido)} tampoco tenemos cupos disponibles. Seguimos teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
-      } else if (cercanos.every((f) => f > pedido)) {
-        texto = `${mayuscula(elPedido)} ${porQue}. Lo más pronto que tenemos es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
-      } else {
-        texto = `${mayuscula(elPedido)} ${porQue}. Tenemos disponible el ${unaU(dias)}. ¿Cuál prefieres?`;
-      }
-      return esperar(sig, [texto]);
-    }
-    // La hora pedida tiene que estar libre ese día: se ofrecen las más cercanas.
-    if (d.fecha && d.hora && !agenda.horasLibres(d.fecha).some((h) => h.hora === d.hora)) {
-      const otras = horasCercanas(d.fecha, d.hora);
-      const pedida = d.hora;
+      const turno = turnoParaOfrecer({ desde: adelante > 0 && adelante <= plazo ? pedido : null, hora: d.hora, excluir });
+      if (!turno) return asesor('', 'sin_cupos');
+      d.fecha = null;
       d.hora = null;
-      const sig = marcarSaludo({ ...s, datos: d, preguntando: 'hora', confirmando: false, sinAvance: 0 });
-      // Fuera del horario de citas (7 a. m., 6 p. m.…) se dice el horario; si no, que esa hora ya se ocupó.
-      const delDia = agenda.dia(d.fecha).horas.find((h) => h.hora === pedida);
-      const motivo = delDia && delDia.enHorario
-        ? `A las ${horaCorta(pedida)} ya no tenemos cupo el ${diaCorto(d.fecha)}.`
-        : `Las citas son de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${conPunto(horaCorta(config.horario[1]?.hasta || '15:30'))}`;
-      return esperar(sig, [`${motivo} Tenemos disponible ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`]);
+      return ofrecer(marcarSaludo({ ...s, datos: d }), turno, `${mayuscula(elPedido)} ${porQue}. Te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`);
+    }
+
+    // La hora pedida no está libre ese día (ocupada o fuera de horario): se ofrece UNA, la más cercana.
+    if (d.fecha && d.hora && !agenda.horasLibres(d.fecha).some((h) => h.hora === d.hora)) {
+      const pedida = d.hora;
+      const turno = turnoParaOfrecer({ desde: d.fecha, hora: pedida, excluir });
+      if (!turno) return asesor('', 'sin_cupos');
+      const dia = diaCorto(d.fecha);
+      d.fecha = null;
+      d.hora = null;
+      const otro = turno.fecha === s.datos.fecha ? `a las ${horaCorta(turno.hora)}` : textoTurno(turno);
+      return ofrecer(marcarSaludo({ ...s, datos: d }), turno, `El ${dia} a las ${horaCorta(pedida)} no tengo turno disponible. Te puedo ofrecer ${conPunto(otro)} ¿Te sirve?`);
     }
 
     const faltan = CAMPOS.filter((c) => !d[c]);
     if (faltan.length) {
       const sinAvance = avance ? 0 : (s.sinAvance || 0) + 1;
-      if (sinAvance >= MAX_SIN_AVANCE) return asesor('Dame un momento, ya te escribe un asesor 🙌', 'no_entendio');
+      if (sinAvance >= MAX_SIN_AVANCE) return asesor('', 'no_entendio');
       const sig = marcarSaludo({ ...s, datos: d, preguntando: faltan[0], confirmando: false, sinAvance });
+
+      // Solo falta el día y/o la hora: se sugiere UN turno (el más temprano, o el más cercano a la hora que dijo).
+      if (faltan.every((c) => c === 'fecha' || c === 'hora')) {
+        const turno = turnoParaOfrecer({ desde: d.fecha, hora: d.hora, excluir });
+        if (!turno) return asesor('', 'sin_cupos');
+        return ofrecer(sig, turno, [saludo, `¿Te sirve ${textoTurno(turno)}?`].filter(Boolean).join(' '));
+      }
+
       let pregunta;
       if (faltan.length > 2) {
         // Corto, para que quepa en un mensaje y no se parta a mitad de frase.
         const corto = { nombre: 'nombre', vehiculo: faltan.length > 3 ? 'vehículo' : 'vehículo (marca, modelo y año)', placa: 'placa', fecha: 'día', hora: 'hora', telefono: 'celular' };
         pregunta = `Para agendarte me falta: ${lista(faltan.map((c) => corto[c]))} ✍️`;
-      } else if (faltan[0] === 'fecha') {
-        const dias = unaU(diasConCupoTexto(momento.fecha));
-        pregunta = faltan.includes('hora')
-          ? `¿Qué día y a qué hora te queda bien? Tengo espacio ${dias}, de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${conPunto(horaCorta(config.horario[1]?.hasta || '15:30'))}`
-          : `¿Para qué día te agendo${d.hora ? ` a las ${horaCorta(d.hora)}` : ''}? Tengo espacio ${dias}.`;
-      } else if (faltan[0] === 'hora') {
-        const libres = agenda.horasLibres(d.fecha).map((h) => h.hora);
-        sig.horaSugerida = libres[0]; // si responde "sí", se agenda a esta hora
-        // Se sugiere siempre lo más temprano (mejor en la mañana que tarde en el día).
-        pregunta = libres.length > 1
-          ? `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Te sugiero a las ${horaCorta(libres[0])}, que es lo más temprano; hay espacio hasta las ${conPunto(horaCorta(libres[libres.length - 1]))}`
-          : `¿Te sirve el ${diaCorto(d.fecha)} a las ${horaCorta(libres[0])}?`;
       } else if (faltan.length === 2) {
         pregunta = `¿Me dices ${NOMBRE_CAMPO[faltan[0]]} y ${NOMBRE_CAMPO[faltan[1]]}?`;
       } else {
         pregunta = PREGUNTA[faltan[0]];
       }
-      return esperar(sig, [[...avisos, saludo, pregunta].filter(Boolean).join(' ')]);
+      return esperar(sig, [[saludo, pregunta].filter(Boolean).join(' ')]);
     }
 
     // Con todos los datos y el turno libre, se agenda de una vez y se le confirma al cliente.
-    return guardar({ ...s, datos: d, preguntando: null, confirmando: false, sinAvance: 0 });
+    return guardar({ ...s, datos: d, preguntando: null, confirmando: false, sinAvance: 0, propuesta: null });
   }
 
   // estado: lo guardado (o null si es el primer mensaje con los datos).
@@ -656,14 +659,19 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     const confirma = deReglas.confirma ?? deIA.confirma;
     if (deReglas.asesor || deIA.asesor || deReglas.despedida || deIA.despedida) {
       const r = deReglas.asesor || deIA.asesor
-        ? asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor')
-        : asesor('¡Con gusto! 🙌 Cuando quieras me escribes por aquí y te separo el cupo.', 'despedida');
+        ? asesor('', 'pidio_asesor')
+        : asesor('', 'despedida');
       guardarEnMemoria(SIN_RESPUESTA);
       return r;
     }
 
-    // "Sí" a la hora sugerida (la más temprana): se toma esa hora.
-    if (confirma === true && s.preguntando === 'hora' && s.horaSugerida && !nuevo.hora) nuevo.hora = s.horaSugerida;
+    // Respuesta al turno ofrecido: "sí" lo toma; "no" (sin decir otro día ni hora) pide el siguiente.
+    const propuesta = s.preguntando === 'propuesta' && s.propuesta ? s.propuesta : null;
+    if (propuesta && confirma === true && !nuevo.fecha && !nuevo.hora) {
+      nuevo.fecha = propuesta.fecha;
+      nuevo.hora = propuesta.hora;
+    }
+    const rechazo = Boolean(propuesta && confirma === false && !nuevo.fecha && !nuevo.hora);
 
     const antes = JSON.stringify(s.datos);
     for (const [campo, valor] of Object.entries(nuevo)) if (valor) s.datos[campo] = valor;
@@ -673,7 +681,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     // el bot no inventa ni insiste; corta y le deja el chat a un asesor.
     if (deIA.fueraDeLugar && !cambio && !preguntaFrecuente(texto, s.servicio)) {
       console.log('Bot: mensaje fuera de lugar, paso a asesor', { lead: s.lead });
-      const r = asesor('Dame un momento, ya te escribe un asesor 🙌', 'fuera_de_lugar');
+      const r = asesor('', 'fuera_de_lugar');
       guardarEnMemoria(SIN_RESPUESTA);
       return r;
     }
@@ -686,7 +694,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       } else {
         const sinAvance = (s.sinAvance || 0) + 1;
         r = sinAvance >= MAX_SIN_AVANCE
-          ? asesor('Dame un momento, ya te escribe un asesor 🙌', 'no_entendio')
+          ? asesor('', 'no_entendio')
           : esperar({ ...s, sinAvance }, ['¿Confirmo la cita? Responde SÍ o dime qué quieres cambiar ✍️']);
       }
     } else {
@@ -696,12 +704,16 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const traeCita = Boolean(nuevo.fecha || nuevo.hora || nuevo.placa);
       if (OTRO_SERVICIO.test(t) && !traeCita) {
         // Otro servicio o un repuesto: lo responde un asesor.
-        r = asesor('Ese servicio te lo confirma un asesor, ya te escribe 🙌', 'otro_servicio');
+        r = asesor('', 'otro_servicio');
       } else if (VARIOS_VEHICULOS.test(t)) {
-        r = asesor('Para agendar varios vehículos te escribe un asesor en un momento 🙌', 'varios_vehiculos');
-      } else if (confirma === true && !cambio && s.preguntando === 'fecha' && (s.diasOfrecidos || []).length > 1) {
-        // "Sí" cuando se le ofrecieron varios días: se le pregunta cuál, sin pasarlo a asesor.
-        r = esperar({ ...s }, [`¿Cuál día te sirve: el ${unaU(s.diasOfrecidos.map(diaCorto))}?`]);
+        r = asesor('', 'varios_vehiculos');
+      } else if (rechazo) {
+        // No le sirvió: se ofrece el siguiente turno. Después de 3 rechazos, lo atiende un asesor.
+        const rechazadas = [...(s.rechazadas || []), `${propuesta.fecha} ${propuesta.hora}`];
+        const turno = rechazadas.length < 3 && turnoParaOfrecer({ desde: propuesta.fecha, hora: propuesta.hora, excluir: rechazadas });
+        r = turno
+          ? esperar({ ...s, rechazadas, propuesta: turno, preguntando: 'propuesta' }, [`Entonces te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`])
+          : asesor('', 'sin_acuerdo');
       } else {
         r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
       }
@@ -716,7 +728,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     const yaDicho = Array.isArray(s.yaDicho) ? s.yaDicho : [];
     if (r.estado === 'esperar' && yaDicho.includes(normalizar(textoDe(r)))) {
       console.log('Bot: iba a repetir el mismo mensaje, paso a asesor', { lead: s.lead });
-      r = asesor('Te paso con un asesor para ayudarte mejor 🙌', 'repetido');
+      r = asesor('', 'repetido');
     }
     // La IA redacta las preguntas para que suenen naturales; si cambia algún dato, se usa el texto original.
     // La confirmación de la cita y el paso a asesor van siempre con el texto fijo (sin cambios de la IA).
