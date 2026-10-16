@@ -246,6 +246,16 @@ function preguntaFrecuente(texto, servicio) {
   if (/\b(horarios? de atencion|que horario (tienen|manejan)|cual es (el|su) horario|a que hora (abren|cierran|atienden)|hasta que hora (atienden|abren|trabajan)|que dias (atienden|trabajan|abren)|(atienden|trabajan|abren) (los |el )?(sabados?|domingos?|festivos?))\b/.test(t)) {
     respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.');
   }
+  // Precio y duración del servicio que está agendando (de otros servicios, no: eso es para un asesor).
+  const nombre = s.corto.toLowerCase();
+  if (!otroServicio && /\b(cuanto (vale|cuesta|es|sale|cobran)|precio|valor|costo)\b/.test(t)) {
+    const precio = String(s.precio).replace(/^Precio:\s*/i, '');
+    respuestas.push(/^desde/i.test(precio) ? `💰 La ${nombre} cuesta ${precio.charAt(0).toLowerCase()}${precio.slice(1)}.` : `💰 La ${nombre} cuesta ${precio}.`);
+  }
+  if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
+    const min = s.duracionMinutos;
+    respuestas.push(`⏱️ La ${nombre} dura aprox. ${min >= 60 ? `${min / 60} horas` : `${min} minutos`}.`);
+  }
   return respuestas.length ? respuestas : null;
 }
 

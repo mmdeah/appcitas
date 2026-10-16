@@ -254,10 +254,16 @@ test('preguntas comunes en medio de la conversación: responde y sigue con la ci
   const [precio] = await charla(libre, ['cuánto vale la revisión? el jueves a las 10:30, Ana Ruiz, Kia Rio 2020, QWE123']);
   assert.equal(precio.estado, 'listo');
 
-  // El precio, la duración u otra cosa que no sea agendar, dirección u horario: el bot se apaga callado.
+  // Precio y duración de la revisión: los responde y sigue con la cita.
   const [soloPrecio] = await charla(libre, ['¿cuánto cuesta?']);
-  assert.equal(soloPrecio.estado, 'asesor');
-  assert.deepEqual(textos(soloPrecio), []);
+  assert.equal(soloPrecio.estado, 'esperar');
+  assert.equal(textos(soloPrecio)[0], '💰 La revisión cuesta $60.000.');
+  const [dura] = await charla(libre, ['cuanto se demora la revision?']);
+  assert.equal(textos(dura)[0], '⏱️ La revisión dura aprox. 45 minutos.');
+  // Cualquier otra cosa que no sea agendar, dirección, horario, precio o duración: el bot se apaga callado.
+  const [otra] = await charla(libre, ['¿tienen parqueadero para motos?']);
+  assert.equal(otra.estado, 'asesor');
+  assert.deepEqual(textos(otra), []);
 });
 
 test('las citas del mismo cliente quedan todas activas', async () => {
