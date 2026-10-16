@@ -14,6 +14,7 @@ const { crearAtencion } = require('./atencion');
 const { crearIA } = require('./ia');
 const { crearRecordatorios } = require('./recordatorios');
 const { crearMemoria } = require('./memoria');
+const { crearApi } = require('./api');
 const { crearConversacionLibre } = require('./libre');
 const vistas = require('./vistas');
 
@@ -50,6 +51,8 @@ const bot = crearBot(agenda);
 const kommo = crearKommo();
 const ia = crearIA();
 const libre = crearConversacionLibre(agenda, { ia, memoria: crearMemoria(db) });
+const api = crearApi(db);
+console.log(api.activa ? 'API de solo lectura activa en /api/citas.' : 'API de solo lectura apagada (variable API_LECTURA_TOKEN).');
 const atenderBot = crearAtencion({ bot, conversaciones, kommo, libre });
 console.log(ia.activa ? 'IA de OpenRouter activa.' : 'IA sin configurar (OPENROUTER_API_KEY / OPENROUTER_MODEL): se usan solo reglas.');
 if (!kommo.activo) console.log('Kommo sin configurar: faltan KOMMO_SECRET y/o KOMMO_TOKEN. El bot no agendará.');
@@ -158,6 +161,11 @@ async function atender(req, res) {
   if (metodo === 'GET' && ruta === '/salud') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end('ok');
+  }
+  // API de solo lectura para otras aplicaciones (con token propio, sin sesión).
+  if (metodo === 'GET' && ruta === '/api/citas') {
+    const r = api.citas(req, url.searchParams);
+    return json(res, r.estado, r.datos);
   }
   if (metodo === 'GET' && ruta === '/app.css') {
     res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
