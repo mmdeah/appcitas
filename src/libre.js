@@ -406,6 +406,7 @@ function limpiarIA(ia, momento) {
   if (typeof ia.confirma === 'boolean') r.confirma = ia.confirma;
   if (ia.asesor === true) r.asesor = true;
   if (ia.despedida === true) r.despedida = true;
+  if (ia.fuera_de_lugar === true) r.fueraDeLugar = true;
   return r;
 }
 
@@ -658,6 +659,15 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     const antes = JSON.stringify(s.datos);
     for (const [campo, valor] of Object.entries(nuevo)) if (valor) s.datos[campo] = valor;
     const cambio = JSON.stringify(s.datos) !== antes;
+
+    // Respuesta rara o fuera de lugar (según la IA, que lee toda la conversación) y sin datos nuevos de la cita:
+    // el bot no inventa ni insiste; corta y le deja el chat a un asesor.
+    if (deIA.fueraDeLugar && !cambio && !preguntaFrecuente(texto, s.servicio)) {
+      console.log('Bot: mensaje fuera de lugar, paso a asesor', { lead: s.lead });
+      const r = asesor('Dame un momento, ya te escribe un asesor 🙌', 'fuera_de_lugar');
+      guardarEnMemoria(textoDe(r));
+      return r;
+    }
 
     let r;
     if (s.confirmando && !cambio) {

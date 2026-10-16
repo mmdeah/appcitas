@@ -60,6 +60,23 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     return null;
   }
 
+  // Jornada de un turno (mañana antes del mediodía, tarde desde el mediodía) y cuántas citas le quedan.
+  const jornada = (hora) => (hora < (cfg.mediodia || '12:00') ? 'manana' : 'tarde');
+  const libresEnJornada = (citas, hora) => {
+    const limite = cfg.citasPorJornada && cfg.citasPorJornada[jornada(hora)];
+    if (limite == null) return Infinity;
+    return limite - citas.filter((c) => jornada(c.hora) === jornada(hora)).length;
+  };
+  // Cupos del día para mostrar en el calendario: por jornada si hay límite, si no por horas.
+  const cuposDelDia = (deAtencion) => {
+    const porHoras = (horas) => new Set(horas.map(bloque)).size * cfg.capacidadPorHora;
+    if (!cfg.citasPorJornada) return porHoras(deAtencion);
+    return ['manana', 'tarde'].reduce((n, j) => {
+      const horas = deAtencion.filter((h) => jornada(h) === j);
+      return n + (horas.length ? Math.min(cfg.citasPorJornada[j] ?? Infinity, porHoras(horas)) : 0);
+    }, 0);
+  };
+
   // Bloque de una hora al que pertenece un turno ("09:30" → "09"). La capacidad es por bloque.
   const bloque = (hora) => hora.slice(0, 2);
 
@@ -90,7 +107,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
       pasado: fecha < momento.fecha,
       totalCitas: citas.length,
       canceladas: sql.canceladasDelDia.all(fecha),
-      cupos: cierre ? 0 : new Set(deAtencion.map(bloque)).size * cfg.capacidadPorHora,
+      cupos: cierre ? 0 : cuposDelDia(deAtencion),
       horas: horas.map((hora) => {
         const citasDeLaHora = citas.filter((c) => c.hora === hora);
         const citasDelBloque = citas.filter((c) => bloque(c.hora) === bloque(hora));
@@ -98,7 +115,9 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
         const enHorario = deAtencion.includes(hora);
         const pasada = minutosHasta(fecha, hora, momento) < 0;
         const libres =
-          cierre || bloqueo || !enHorario || pasada ? 0 : Math.max(0, cfg.capacidadPorHora - citasDelBloque.length);
+          cierre || bloqueo || !enHorario || pasada
+            ? 0
+            : Math.max(0, Math.min(cfg.capacidadPorHora - citasDelBloque.length, libresEnJornada(citas, hora)));
         return { hora, citas: citasDeLaHora, bloqueo, enHorario, pasada, libres };
       }),
     };
@@ -172,6 +191,9 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
           throw new ErrorAgenda('FUERA_DE_PLAZO', 'Esa hora ya no se puede agendar.');
         }
         if (ocupados.length >= cfg.capacidadPorHora) throw new ErrorAgenda('LLENO', 'Esa hora ya está llena.');
+        if (libresEnJornada(sql.citasDelDia.all(c.fecha), c.hora) <= 0) {
+          throw new ErrorAgenda('LLENO', `Ya no hay cupos en la ${jornada(c.hora) === 'manana' ? 'mañana' : 'tarde'} de ese día.`);
+        }
       }
       let puesto = 1;
       while (ocupados.includes(puesto)) puesto++;

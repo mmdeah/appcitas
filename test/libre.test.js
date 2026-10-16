@@ -358,3 +358,17 @@ test('simulación de casos raros: fechas con mes, placa correcta, otros servicio
   const [tarde] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el viernes a las 6 pm']);
   assert.match(textos(tarde)[0], /^Las citas son de 8:30 a\. m\. a 3:30 p\. m\./);
 });
+
+test('con IA: si el mensaje es raro o fuera de lugar y no trae datos, corta y pasa a asesor; si trae datos, sigue', async () => {
+  const ia = (extra) => ({ activa: true, extraer: async () => extra, redactar: async () => null });
+  // Fuera de lugar sin datos: corta.
+  const [raro] = await charla(crearConversacionLibre(agenda, { ia: ia({ fuera_de_lugar: true }), reloj }), ['mi perro se comió el control jajaja']);
+  assert.equal(raro.estado, 'asesor');
+  assert.equal(raro.data.motivo, 'fuera_de_lugar');
+  // La IA dice "raro" pero el mensaje trae datos de la cita: se sigue agendando (no se pierde un cliente).
+  const [conDatos] = await charla(crearConversacionLibre(agenda, { ia: ia({ fuera_de_lugar: true }), reloj }), ['Juan Pérez, Mazda 3 2018, ABC123, el jueves a las 10:30']);
+  assert.equal(conDatos.estado, 'listo');
+  // Pregunta normal (dirección): no se corta.
+  const [donde] = await charla(crearConversacionLibre(agenda, { ia: ia({ fuera_de_lugar: true }), reloj }), ['¿dónde quedan?']);
+  assert.equal(donde.estado, 'esperar');
+});

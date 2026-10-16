@@ -28,6 +28,11 @@ module.exports = {
   // Cuántos vehículos se pueden recibir dentro de la misma hora (9:00 y 9:30 cuentan juntos).
   capacidadPorHora: 2,
 
+  // Máximo de citas por día, repartidas por jornada: la mañana va hasta antes de las 12:00 y la tarde desde las 12:00.
+  // Cualquier turno del horario sirve, mientras la jornada tenga cupo.
+  citasPorJornada: { manana: 2, tarde: 2 },
+  mediodia: '12:00',
+
   // Límites para lo que agenda el bot (las citas que pones tú a mano no los usan).
   diasAdelante: 14, // hasta cuántos días en el futuro se puede agendar
   anticipacionMinutos: 120, // no ofrecer horas que empiezan en menos de 2 horas

@@ -21,9 +21,9 @@ test('a las 7 a. m. pasa a RECORDATORIO los leads con cita mañana, una sola vez
   const { cita, movidos, recordatorios, agenda } = preparar(a('07:05'));
   cita('2026-10-14', '09:00', '11', '3001110001');
   cita('2026-10-14', '10:00', '11', '3001110001'); // mismo lead: un solo recordatorio
-  cita('2026-10-14', '11:00', '22', '3001110002');
+  cita('2026-10-14', '13:00', '22', '3001110002'); // en la tarde: la mañana solo recibe 2
   cita('2026-10-15', '09:00', '33', '3001110003'); // pasado mañana: todavía no
-  const cancelada = cita('2026-10-14', '12:00', '44', '3001110004');
+  const cancelada = cita('2026-10-14', '14:00', '44', '3001110004');
   agenda.cancelar(cancelada.id);
 
   await recordatorios.revisar();

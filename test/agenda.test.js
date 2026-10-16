@@ -164,3 +164,22 @@ test('una cita fuera de horario agendada a mano aparece en el día', () => {
   assert.equal(h.citas.length, 1);
   assert.equal(h.enHorario, false);
 });
+
+test('máximo 4 citas al día: 2 en la mañana y 2 en la tarde, en cualquier turno', () => {
+  const dia = crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30, citasPorJornada: { manana: 2, tarde: 2 }, mediodia: '12:00' }, reloj);
+  const cita = (hora, n) => dia.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora, cliente: `C${n}`, telefono: `30000000${10 + n}` }, { origen: 'BOT' });
+  assert.equal(dia.dia('2026-10-08').cupos, 4);
+  cita('08:30', 1);
+  cita('11:30', 2);
+  // La mañana ya está llena: ninguna hora antes de las 12 queda libre, aunque esa hora esté vacía.
+  assert.ok(dia.horasLibres('2026-10-08').every((h) => h.hora >= '12:00'));
+  assert.throws(() => cita('10:00', 3), /mañana/);
+  cita('12:00', 4);
+  cita('15:30', 5);
+  assert.deepEqual(dia.horasLibres('2026-10-08'), []);
+  assert.throws(() => cita('14:00', 6), /tarde/);
+  // Si una se cancela, ese cupo vuelve.
+  const otra = dia.dia('2026-10-08').horas.flatMap((h) => h.citas).find((c) => c.hora === '15:30');
+  dia.cancelar(otra.id);
+  assert.ok(dia.horasLibres('2026-10-08').some((h) => h.hora === '14:00'));
+});
