@@ -165,6 +165,17 @@ function fechaEscrita(t, hoy, soloNumero = false) {
   if (/\bpasado manana\b/.test(limpio)) return sumarDias(hoy, 2);
   if (/\bmanana\b/.test(limpio)) return sumarDias(hoy, 1);
   if (/\bhoy\b/.test(limpio)) return hoy;
+  // "20 de diciembre": con mes, la fecha es esa exacta (aunque esté lejos o ya haya pasado; eso se avisa después).
+  const conMes = limpio.match(new RegExp(`\\b(\\d{1,2}) de (${MESES_SIN_TILDE.join('|')})\\b`));
+  if (conMes) {
+    const anio = Number(hoy.slice(0, 4));
+    const armar = (a) => `${a}-${String(MESES_SIN_TILDE.indexOf(conMes[2]) + 1).padStart(2, '0')}-${String(conMes[1]).padStart(2, '0')}`;
+    let fecha = armar(anio);
+    if (!esFecha(fecha)) return null;
+    // "5 de enero" dicho en diciembre es del año siguiente; "12 de octubre" dicho el 14 ya pasó.
+    if (diasEntre(hoy, fecha) < -60) fecha = armar(anio + 1);
+    return esFecha(fecha) ? fecha : null;
+  }
   const dia = limpio.match(/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/);
   const num =
     limpio.match(/\bel (?:dia )?(\d{1,2})\b(?!:)/) ||
@@ -216,12 +227,17 @@ const MARCAS = new RegExp('\\b(' + [
 ].join('|') + ')\\b');
 const ES_VEHICULO = (t) => MARCAS.test(t) || /\b(19|20)\d{2}\b/.test(t) || /\b(carro|camioneta|moto|vehiculo|modelo)\b/.test(t);
 
+// Servicios o productos que no son la revisión ni la sincronización: los atiende un asesor.
+const OTRO_SERVICIO = /\b(aceite|latoneria|pintura|frenos?|pastillas?|llantas?|alineacion|balanceo|lavado|bateria|embrague|suspension|aire acondicionado|scanner|escaner|diagnostico|repuestos?|cotizacion|cotizar|mantenimiento|correa|clutch|radiador|amortiguadores?)\b/;
+// Más de un vehículo en la misma cita: mejor lo cuadra un asesor.
+const VARIOS_VEHICULOS = /\b(dos|2|tres|3|varios|varias) (carros|vehiculos|motos|camionetas|autos)\b/;
+
 // Preguntas comunes que el bot responde sin cortar la conversación.
 function preguntaFrecuente(texto, servicio) {
   const t = normalizar(texto);
   const s = config.servicios[servicio] || config.servicios.REVISION;
   // Precio o duración de OTRO servicio (aceite, frenos…): eso lo responde un asesor.
-  const otroServicio = /\b(aceite|latoneria|pintura|frenos?|llantas?|alineacion|balanceo|lavado|bateria|embrague|suspension|aire|scanner|escaner|diagnostico)\b/.test(t);
+  const otroServicio = OTRO_SERVICIO.test(t);
   const respuestas = [];
   if (/\b(donde|direccion|ubicad\w*|ubicacion|como llego|como llegar|en que parte|que barrio)\b/.test(t)) {
     respuestas.push(`📍 Estamos en la ${config.direccion}.`);
@@ -230,7 +246,7 @@ function preguntaFrecuente(texto, servicio) {
     respuestas.push(`💰 ${s.nombre}: ${String(s.precio).replace(/^Precio:\s*/i, '')}.`.replace(/\.\.$/, '.'));
   }
   // "¿Para mañana no tienes en ningún horario?" es pedir cupo, no preguntar el horario de atención.
-  if (/\b(horarios? de atencion|que horario (tienen|manejan)|cual es (el|su) horario|a que hora (abren|cierran|atienden)|hasta que hora (atienden|abren|trabajan)|que dias (atienden|trabajan|abren))\b/.test(t)) {
+  if (/\b(horarios? de atencion|que horario (tienen|manejan)|cual es (el|su) horario|a que hora (abren|cierran|atienden)|hasta que hora (atienden|abren|trabajan)|que dias (atienden|trabajan|abren)|(atienden|trabajan|abren) (los |el )?(sabados?|domingos?|festivos?))\b/.test(t)) {
     respuestas.push('🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.', 'Las citas son de 8:30 a. m. a 3:30 p. m.');
   }
   if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
@@ -269,7 +285,11 @@ function nombreYVehiculo(texto) {
 // Ej: "David Perlaza / Nissan Tiida 2015 / ABC133 / mañana 10 am".
 function porPartes(texto) {
   const r = {};
-  const partes = String(texto).split(/[\n;,]+/).map((p) => p.trim()).filter(Boolean);
+  // "Marta 3105551234": el número de celular se quita para que no estorbe al reconocer el nombre.
+  const partes = String(texto)
+    .split(/[\n;,]+/)
+    .map((p) => p.replace(/\+?\d[\d\s-]{8,}\d/g, ' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
   for (const parte of partes) {
     // "Nombre: David", "Vehículo: Mazda 3"…
     const etiqueta = normalizar(parte).match(/^(nombre|placa|vehiculo|carro|moto|modelo|dia|fecha|hora)\b/);
@@ -301,7 +321,7 @@ function porPartes(texto) {
       }
       continue;
     }
-    const pareceFrase = /(tarde|manana|noche|dia|hora|semana|revision|sincronizacion|cita|agendar|quiero|puedo|necesito|gracias|hola|buenas|cuanto|precio|donde)/.test(v);
+    const pareceFrase = /\b(tarde|manana|noche|dia|hora|semana|revision|sincronizacion|cita|agendar|quiero|puedo|necesito|gracias|hola|buenas|cuanto|precio|donde)\b/.test(v);
     if (!placa && !r.nombre && !pareceFrase && /^[a-z ]+$/.test(v) && v.split(' ').length <= 4 && !NO_ES_NOMBRE.has(v)) {
       const n = limpiarNombre(valor);
       if (n) r.nombre = n;
@@ -310,8 +330,16 @@ function porPartes(texto) {
   return r;
 }
 
+// Errores de escritura comunes por WhatsApp (solo para las reglas; la IA los entiende sola).
+const TYPOS = {
+  soi: 'soy', biernes: 'viernes', vierne: 'viernes', sabdo: 'sábado', savado: 'sábado', juebes: 'jueves',
+  mierkoles: 'miércoles', miercole: 'miércoles', lunez: 'lunes', plca: 'placa', palca: 'placa', plaka: 'placa', manan: 'mañana', mñn: 'mañana',
+};
+const corregir = (texto) => String(texto || '').replace(/[a-zñ_]+/gi, (p) => TYPOS[p.toLowerCase()] || p);
+
 // Reglas sin IA: placa, día y hora cuando el texto los menciona claramente.
-function extraerConReglas(texto, s, momento) {
+function extraerConReglas(textoOriginal, s, momento) {
+  const texto = corregir(textoOriginal);
   const t = normalizar(texto);
   const r = {};
   const { placa, resto } = separarPlaca(texto);
@@ -491,18 +519,28 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       d.fecha = null; // la hora que pidió se guarda: si elige otro día, se intenta a esa misma hora
       const sig = marcarSaludo({ ...s, datos: d, preguntando: 'fecha', confirmando: false, sinAvance: 0, diasOfrecidos: cercanos });
       if (!cercanos.length) return asesor('Por ahora no tengo cupos libres. Un asesor te escribe 🙌', 'sin_cupos');
-      const dias = cercanos.map(diaCorto);
+      // Si pidió otro mes, el último día ofrecido lleva el mes ("…o miércoles 28 de octubre").
+      const dias = cercanos.map((f, i) => (i === cercanos.length - 1 && pedido.slice(0, 7) !== f.slice(0, 7) ? fechaLarga(f) : diaCorto(f)));
       const yaOfrecidos = JSON.stringify(s.diasOfrecidos || []) === JSON.stringify(cercanos);
       // Domingo o festivo: no atendemos. Lleno o bloqueado a mano: se llenó.
+      // Por qué no se puede: ya pasó, está fuera del plazo, domingo/festivo, o se llenó.
       const cierre = agenda.dia(pedido).cierre;
-      const porQue = cierre === 'Festivo' ? 'es festivo y no atendemos' : cierre === 'Sin atención' ? 'no atendemos' : 'ya no tenemos cupos disponibles';
+      const adelante = diasEntre(momento.fecha, pedido);
+      const porQue =
+        adelante < 0 ? 'ya pasó'
+        : adelante > (config.diasAdelante || 14) ? 'todavía no tiene agenda abierta'
+        : cierre === 'Festivo' ? 'es festivo y no atendemos'
+        : cierre === 'Sin atención' ? 'no atendemos'
+        : 'ya no tenemos cupos disponibles';
+      // Si es de otro mes se dice con el mes ("el 20 de diciembre"), para que no se confunda.
+      const elPedido = pedido.slice(0, 7) === momento.fecha.slice(0, 7) ? `el ${diaCorto(pedido)}` : `el ${fechaLarga(pedido)}`;
       let texto;
       if (yaOfrecidos) {
-        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} tampoco tenemos cupos disponibles. Seguimos teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
+        texto = `${mayuscula(elPedido)} tampoco tenemos cupos disponibles. Seguimos teniendo el ${unaU(dias)}. ¿Cuál te sirve?`;
       } else if (cercanos.every((f) => f > pedido)) {
-        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} ${porQue}. Lo más pronto que tenemos es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
+        texto = `${mayuscula(elPedido)} ${porQue}. Lo más pronto que tenemos es el ${dias[0]}${dias.length > 1 ? `; también ${unaU(dias.slice(1))}` : ''}. ¿Cuál prefieres?`;
       } else {
-        texto = `${mayuscula(`el ${diaCorto(pedido)}`)} ${porQue}. Tenemos disponible el ${unaU(dias)}. ¿Cuál prefieres?`;
+        texto = `${mayuscula(elPedido)} ${porQue}. Tenemos disponible el ${unaU(dias)}. ¿Cuál prefieres?`;
       }
       return esperar(sig, [texto]);
     }
@@ -512,9 +550,12 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const pedida = d.hora;
       d.hora = null;
       const sig = marcarSaludo({ ...s, datos: d, preguntando: 'hora', confirmando: false, sinAvance: 0 });
-      return esperar(sig, [
-        `A las ${horaCorta(pedida)} ya no tenemos cupo el ${diaCorto(d.fecha)}. Tenemos disponible ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`,
-      ]);
+      // Fuera del horario de citas (7 a. m., 6 p. m.…) se dice el horario; si no, que esa hora ya se ocupó.
+      const delDia = agenda.dia(d.fecha).horas.find((h) => h.hora === pedida);
+      const motivo = delDia && delDia.enHorario
+        ? `A las ${horaCorta(pedida)} ya no tenemos cupo el ${diaCorto(d.fecha)}.`
+        : `Las citas son de ${horaCorta(config.horario[1]?.desde || '08:30')} a ${conPunto(horaCorta(config.horario[1]?.hasta || '15:30'))}`;
+      return esperar(sig, [`${motivo} Tenemos disponible ${conPunto(opcionesDeHora(otras))} ¿Cuál prefieres?`]);
     }
 
     const faltan = CAMPOS.filter((c) => !d[c]);
@@ -524,7 +565,9 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const sig = marcarSaludo({ ...s, datos: d, preguntando: faltan[0], confirmando: false, sinAvance });
       let pregunta;
       if (faltan.length > 2) {
-        pregunta = `Para agendarte me falta ${lista(faltan.map((c) => NOMBRE_CAMPO[c]))} ✍️`;
+        // Corto, para que quepa en un mensaje y no se parta a mitad de frase.
+        const corto = { nombre: 'nombre', vehiculo: faltan.length > 3 ? 'vehículo' : 'vehículo (marca, modelo y año)', placa: 'placa', fecha: 'día', hora: 'hora', telefono: 'celular' };
+        pregunta = `Para agendarte me falta: ${lista(faltan.map((c) => corto[c]))} ✍️`;
       } else if (faltan[0] === 'fecha') {
         const dias = unaU(diasConCupoTexto(momento.fecha));
         pregunta = faltan.includes('hora')
@@ -630,7 +673,19 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     } else {
       // Si preguntó algo común (dirección, precio, horario, duración), se le responde y se sigue con la cita.
       const respuesta = preguntaFrecuente(texto, s.servicio);
-      r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
+      const t = normalizar(texto);
+      const traeCita = Boolean(nuevo.fecha || nuevo.hora || nuevo.placa);
+      if (OTRO_SERVICIO.test(t) && !traeCita) {
+        // Otro servicio o un repuesto: lo responde un asesor.
+        r = asesor('Ese servicio te lo confirma un asesor, ya te escribe 🙌', 'otro_servicio');
+      } else if (VARIOS_VEHICULOS.test(t)) {
+        r = asesor('Para agendar varios vehículos te escribe un asesor en un momento 🙌', 'varios_vehiculos');
+      } else if (confirma === true && !cambio && s.preguntando === 'fecha' && (s.diasOfrecidos || []).length > 1) {
+        // "Sí" cuando se le ofrecieron varios días: se le pregunta cuál, sin pasarlo a asesor.
+        r = esperar({ ...s }, [`¿Cuál día te sirve: el ${unaU(s.diasOfrecidos.map(diaCorto))}?`]);
+      } else {
+        r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
+      }
       if (respuesta && r.estado === 'esperar') {
         const antes = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean);
         const shows = [...respuesta.flatMap(partir), ...antes].map((value) => ({ handler: 'show', params: { type: 'text', value } }));

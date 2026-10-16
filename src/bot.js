@@ -113,7 +113,10 @@ function elegirHora(mensaje, horas) {
 
 // Placas de Colombia: carro ABC123, moto ABC12D.
 function separarPlaca(texto) {
-  const m = String(texto || '').match(/\b([A-Za-z]{3})[\s-]?(\d{3}|\d{2}[A-Za-z])\b/);
+  // Si dice "placa ABC123", esa manda (en "moto AKT 125, placa ABC12D" la placa no es AKT 125).
+  const m =
+    String(texto || '').match(/placa\s*(?:es|:)?\s*\b([A-Za-z]{3})[\s-]?(\d{3}|\d{2}[A-Za-z])\b/i) ||
+    String(texto || '').match(/\b([A-Za-z]{3})[\s-]?(\d{3}|\d{2}[A-Za-z])\b/);
   if (!m) return { placa: null, resto: String(texto || '').trim() };
   const resto = String(texto)
     .replace(m[0], ' ')
@@ -140,7 +143,8 @@ function telefonoValido(texto) {
   return /^573\d{9}$/.test(t) ? t : null;
 }
 
-const quiereAsesor = (mensaje) => /\b(asesor|humano|persona|cancelar)\b/.test(normalizar(mensaje));
+const quiereAsesor = (mensaje) =>
+  /\b(asesor|asesora|humano|persona|cancelar|alguien|llamenme|llamarme|me llaman|me pueden llamar|una llamada|hablar con)\b/.test(normalizar(mensaje));
 const quiereOtroDia = (mensaje) =>
   /\b(otro dia|otros dias|otra fecha|cambiar (el dia|la fecha|de dia|de fecha)|ver otros dias)\b/.test(normalizar(mensaje));
 

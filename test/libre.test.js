@@ -328,3 +328,33 @@ test('no repite el mismo mensaje: si iba a decir lo mismo otra vez, pasa a aseso
   assert.equal(tercera.estado, 'asesor');
   assert.equal(tercera.data.motivo, 'repetido');
 });
+
+test('simulación de casos raros: fechas con mes, placa correcta, otros servicios, "sí" y celular en el nombre', async () => {
+  const una = async (mensajes) => charla(crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj }), mensajes);
+  // "20 de diciembre" NO es el 20 de este mes: está fuera del plazo y así se dice.
+  const [lejos] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el 20 de diciembre a las 10']);
+  assert.equal(lejos.estado, 'esperar');
+  assert.match(textos(lejos)[0], /20 de diciembre todavía no tiene agenda abierta/);
+  // Una fecha que ya pasó se dice que ya pasó.
+  const [pasada] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el 2 de octubre a las 10']);
+  assert.match(textos(pasada)[0], /ya pasó/);
+  // La placa es la que va después de "placa", no el modelo de la moto.
+  const [moto] = await una(['Carlos, moto AKT 125, placa ABC12D, el viernes a las 11']);
+  assert.equal(moto.siguiente.datos.placa, 'ABC12D');
+  // Otro servicio, repuestos o varios carros: asesor.
+  assert.equal((await una(['cuánto vale el cambio de aceite?']))[0].data.motivo, 'otro_servicio');
+  assert.equal((await una(['tienen pastillas de freno para un duster?']))[0].data.motivo, 'otro_servicio');
+  assert.equal((await una(['quiero agendar dos carros el viernes a las 9']))[0].data.motivo, 'varios_vehiculos');
+  assert.equal((await una(['quiero hablar con alguien']))[0].data.motivo, 'pidio_asesor');
+  // "Sí" cuando se ofrecieron varios días: pregunta cuál.
+  const [, si] = await una(['Laura, Mazda 2 2020, PLM456, el domingo a las 10', 'sí']);
+  assert.equal(si.estado, 'esperar');
+  assert.match(textos(si)[0], /^¿Cuál día te sirve: el /);
+  // El celular dentro del mensaje no impide reconocer el nombre.
+  const [marta] = await una(['Marta 3105551234, Ford Fiesta 2014, MNB987, el jueves a las 2']);
+  assert.equal(marta.estado, 'listo');
+  assert.equal(marta.cita.cliente, 'Marta');
+  // Fuera del horario de citas se dice el horario.
+  const [tarde] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el viernes a las 6 pm']);
+  assert.match(textos(tarde)[0], /^Las citas son de 8:30 a\. m\. a 3:30 p\. m\./);
+});
