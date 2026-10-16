@@ -297,8 +297,8 @@ test('si algo falla, Kommo igual recibe respuesta y pasa al asesor', async () =>
     console.warn = avisoOriginal;
   }
   assert.deepEqual(enviados.map((e) => [e.data.estado, e.data.motivo]), [['asesor', 'error'], ['asesor', 'sin_lead']]);
-  // Kommo exige al menos una instrucción y solo acepta "show".
-  for (const e of enviados) assert.equal(e.execute_handlers[0].handler, 'show');
+  // Al pasar a asesor el bot no le escribe al cliente: solo termina (goto finish). Kommo exige al menos una instrucción.
+  for (const e of enviados) assert.deepEqual(e.execute_handlers, [{ handler: 'goto', params: { type: 'finish', step: 0 } }]);
 });
 
 test('las opciones se mandan numeradas para tocar 1, 2 o 3', () => {

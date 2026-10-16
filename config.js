@@ -6,7 +6,8 @@ module.exports = {
   zonaHoraria: 'America/Bogota',
 
   // Cuenta de Kommo (autoonlinesdclientes.kommo.com). Las llaves van en variables de entorno.
-  kommo: { subdominio: 'autoonlinesdclientes', embudo: 13701499 },
+  // etapaAsesor: adonde pasa el lead cuando el bot corta (LLAMAR), para que el asesor lo vea.
+  kommo: { subdominio: 'autoonlinesdclientes', embudo: 13701499, etapaAsesor: 105739403 },
 
   // Recordatorio por WhatsApp el día anterior a la cita: a esta hora la app pasa el lead a la etapa
   // de recordatorio (variable KOMMO_ETAPA_RECORDATORIO) y el bot de esa etapa manda la plantilla.

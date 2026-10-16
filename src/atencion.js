@@ -14,7 +14,12 @@ const MAX_TEXTO = 80;
 // - un bloque Mensaje de Kommo con texto y botones fijos ([1] [2] [3], o "escribe tu respuesta")
 //   es el que espera al cliente. estado = "botones" o "texto" decide a cuál bloque va.
 // Las respuestas finales (cita agendada, pasar a asesor) se mandan directo.
+// Terminar el bot sin escribirle nada al cliente (Kommo acepta "goto" además de "show").
+const TERMINAR = { handler: 'goto', params: { type: 'finish', step: 0 } };
+
 function paraKommo(r) {
+  // Cuando el bot corta (pasa a asesor), no le dice nada al cliente: el asesor revisa los chats sin responder.
+  if (r.data.estado === 'asesor') return { data: r.data, handlers: [TERMINAR], silencio: true };
   if (r.data.estado !== 'esperar') {
     return { data: r.data, handlers: r.handlers.length ? r.handlers : [mostrar('Un asesor te escribe en un momento 🙌')] };
   }
@@ -68,7 +73,27 @@ function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
       else conversaciones.borrar(lead);
     }
 
-    const { data: datos, handlers } = paraKommo(r);
+    const { data: datos, handlers, silencio } = paraKommo(r);
+    if (silencio) {
+      // El bot termina callado: el lead pasa a LLAMAR y queda una nota con el motivo para el asesor.
+      if (lead && kommo.moverLead) {
+        await kommo.moverLead(lead, config.kommo.etapaAsesor).catch((err) => console.warn('Kommo: no pude pasar el lead a LLAMAR', lead, err.message));
+      }
+      if (lead) {
+        await kommo
+          .nota(lead, `Bot: no respondió y dejó el chat para un asesor (motivo: ${datos.motivo || 'sin motivo'}).`)
+          .catch((err) => console.warn('Kommo: no pude dejar la nota en el lead', lead, err.message));
+      }
+      try {
+        await kommo.continuar(direccion, { data: datos, execute_handlers: handlers });
+      } catch (err) {
+        // Si Kommo no acepta terminar con "goto finish", se intenta seguir el flujo normal del paso (salida "Pasar a asesor").
+        console.warn('Kommo: no aceptó terminar el bot en silencio, intento seguir el paso:', err.message);
+        await kommo.continuar(direccion, { data: datos, execute_handlers: [{ handler: 'goto', params: { type: 'question', step: 1 } }] });
+      }
+      console.log('Kommo: bot terminado sin responder (pasa a asesor)', { lead, motivo: datos.motivo });
+      return r;
+    }
     await kommo.continuar(direccion, { data: datos, execute_handlers: handlers });
     console.log('Kommo: respuesta enviada al bot', { lead, estado: datos.estado, mensajes: handlers.length });
 

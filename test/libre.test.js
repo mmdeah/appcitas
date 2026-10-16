@@ -214,7 +214,8 @@ test('Kommo con Paso = seguir y sin conversación guardada usa el texto libre', 
   }
   // Sin IA el nombre no se puede sacar de una frase larga: lo pregunta.
   assert.equal(enviados[0].data.estado, 'texto');
-  for (const e of enviados) for (const h of e.execute_handlers) assert.equal(h.handler, 'show');
+  // Nunca se le escribe al cliente nada distinto de mensajes "show"; al pasar a asesor solo se termina el bot.
+  for (const e of enviados) for (const h of e.execute_handlers) assert.ok(h.handler === 'show' || (h.handler === 'goto' && h.params.type === 'finish'));
 });
 
 test('parte textos largos en mensajes de 80 caracteres sin cortar palabras', () => {
@@ -371,4 +372,35 @@ test('con IA: si el mensaje es raro o fuera de lugar y no trae datos, corta y pa
   // Pregunta normal (dirección): no se corta.
   const [donde] = await charla(crearConversacionLibre(agenda, { ia: ia({ fuera_de_lugar: true }), reloj }), ['¿dónde quedan?']);
   assert.equal(donde.estado, 'esperar');
+});
+
+test('al cortar no se le escribe nada al cliente: termina el bot, pasa el lead a LLAMAR y deja nota', async () => {
+  const enviados = [];
+  const movidos = [];
+  const notas = [];
+  const kommo = {
+    contactoDelLead: async () => ({ telefono: '3001112233' }),
+    continuar: async (u, c) => enviados.push(c),
+    nota: async (lead, texto) => notas.push(texto),
+    moverLead: async (lead, etapa) => movidos.push([lead, etapa]),
+  };
+  const atender = crearAtencion({ bot: crearBot(agenda, { reloj }), conversaciones: crearConversaciones(db), kommo, libre: crearConversacionLibre(agenda, { reloj }) });
+  const log = console.log;
+  console.log = () => {};
+  try {
+    await atender({ data: { lead: '77', inicio: 'no', mensaje: 'jajaja' }, return_url: 'x' });
+  } finally {
+    console.log = log;
+  }
+  assert.deepEqual(enviados[0].execute_handlers, [{ handler: 'goto', params: { type: 'finish', step: 0 } }]);
+  assert.deepEqual(movidos, [['77', 105739403]]);
+  assert.match(notas[0], /no respondió/);
+});
+
+test('sugiere la hora más temprana y un "sí" la acepta', async () => {
+  const libre = crearConversacionLibre(crearAgenda(db, { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
+  const [pregunta, si] = await charla(libre, ['Juan Pérez, Mazda 3 2018, ABC123, el jueves', 'sí']);
+  assert.match(textos(pregunta).join(' '), /Te sugiero a las 8:30 a\. m\., que es lo más temprano/);
+  assert.equal(si.estado, 'listo');
+  assert.equal(si.cita.hora, '08:30');
 });

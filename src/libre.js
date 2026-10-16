@@ -576,7 +576,11 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
           : `¿Para qué día te agendo${d.hora ? ` a las ${horaCorta(d.hora)}` : ''}? Tengo espacio ${dias}.`;
       } else if (faltan[0] === 'hora') {
         const libres = agenda.horasLibres(d.fecha).map((h) => h.hora);
-        pregunta = `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Tengo libre ${conPunto(rangosDeHoras(libres))}`;
+        sig.horaSugerida = libres[0]; // si responde "sí", se agenda a esta hora
+        // Se sugiere siempre lo más temprano (mejor en la mañana que tarde en el día).
+        pregunta = libres.length > 1
+          ? `¿A qué hora te queda bien el ${diaCorto(d.fecha)}? Te sugiero a las ${horaCorta(libres[0])}, que es lo más temprano; hay espacio hasta las ${conPunto(horaCorta(libres[libres.length - 1]))}`
+          : `¿Te sirve el ${diaCorto(d.fecha)} a las ${horaCorta(libres[0])}?`;
       } else if (faltan.length === 2) {
         pregunta = `¿Me dices ${NOMBRE_CAMPO[faltan[0]]} y ${NOMBRE_CAMPO[faltan[1]]}?`;
       } else {
@@ -610,6 +614,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       (c) => `${fechaLarga(c.fecha)} ${horaCorta(c.hora)} (${c.vehiculo || 'vehículo'} ${c.placa || ''})`
     );
     const textoDe = (r) => [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
+    // Al pasar a asesor el bot no le escribe nada al cliente (ver atencion.js); así queda en la memoria.
+    const SIN_RESPUESTA = '(el bot no respondió: lo atiende un asesor)';
     const guardarEnMemoria = (respuesta) => {
       if (!memoria || !s.lead) return;
       memoria.agregar(s.lead, 'cliente', texto);
@@ -652,9 +658,12 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       const r = deReglas.asesor || deIA.asesor
         ? asesor('Listo, le aviso a un asesor para que te escriba 🙌', 'pidio_asesor')
         : asesor('¡Con gusto! 🙌 Cuando quieras me escribes por aquí y te separo el cupo.', 'despedida');
-      guardarEnMemoria(textoDe(r));
+      guardarEnMemoria(SIN_RESPUESTA);
       return r;
     }
+
+    // "Sí" a la hora sugerida (la más temprana): se toma esa hora.
+    if (confirma === true && s.preguntando === 'hora' && s.horaSugerida && !nuevo.hora) nuevo.hora = s.horaSugerida;
 
     const antes = JSON.stringify(s.datos);
     for (const [campo, valor] of Object.entries(nuevo)) if (valor) s.datos[campo] = valor;
@@ -665,7 +674,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     if (deIA.fueraDeLugar && !cambio && !preguntaFrecuente(texto, s.servicio)) {
       console.log('Bot: mensaje fuera de lugar, paso a asesor', { lead: s.lead });
       const r = asesor('Dame un momento, ya te escribe un asesor 🙌', 'fuera_de_lugar');
-      guardarEnMemoria(textoDe(r));
+      guardarEnMemoria(SIN_RESPUESTA);
       return r;
     }
 
@@ -736,7 +745,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     }
 
     // Historial de la conversación (lo último), para darle contexto a la IA en el siguiente mensaje.
-    guardarEnMemoria(final);
+    guardarEnMemoria(r.estado === 'asesor' ? SIN_RESPUESTA : final);
     if (r.siguiente) {
       r.siguiente.historial = [...historial, { rol: 'cliente', texto }, { rol: 'taller', texto: final }].slice(-20);
       r.siguiente.ultimaPregunta = final.slice(0, 300);
