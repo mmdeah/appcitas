@@ -70,6 +70,8 @@ function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
 
     if (lead) {
       if (r.siguiente) conversaciones.guardar(lead, r.siguiente);
+      // Si el bot se apagó sin agendar, se guardan los datos del cliente por si retoma (24 h).
+      else if (r.cerrado) conversaciones.guardar(lead, r.cerrado);
       else conversaciones.borrar(lead);
     }
 
@@ -87,9 +89,10 @@ function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
       try {
         await kommo.continuar(direccion, { data: datos, execute_handlers: handlers });
       } catch (err) {
-        // Si Kommo no acepta terminar con "goto finish", se intenta seguir el flujo normal del paso (salida "Pasar a asesor").
-        console.warn('Kommo: no aceptó terminar el bot en silencio, intento seguir el paso:', err.message);
-        await kommo.continuar(direccion, { data: datos, execute_handlers: [{ handler: 'goto', params: { type: 'question', step: 1 } }] });
+        // Si Kommo no acepta terminar con "goto finish", se salta al bloque del bot que pasa a LLAMAR (sin mensaje).
+        // Ojo: NO al paso 1, que en el bot Agenda es la Pausa que espera mensajes (el bot seguiría respondiendo).
+        console.warn('Kommo: no aceptó terminar el bot en silencio, salto al bloque de asesor:', err.message);
+        await kommo.continuar(direccion, { data: datos, execute_handlers: [{ handler: 'goto', params: { type: 'question', step: config.kommo.pasoAsesor } }] });
       }
       console.log('Kommo: bot terminado sin responder (pasa a asesor)', { lead, motivo: datos.motivo });
       return r;

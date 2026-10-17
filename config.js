@@ -7,7 +7,8 @@ module.exports = {
 
   // Cuenta de Kommo (autoonlinesdclientes.kommo.com). Las llaves van en variables de entorno.
   // etapaAsesor: adonde pasa el lead cuando el bot corta (LLAMAR), para que el asesor lo vea.
-  kommo: { subdominio: 'autoonlinesdclientes', embudo: 13701499, etapaAsesor: 105739403 },
+  // pasoAsesor: número del bloque del bot Agenda que pasa a LLAMAR (salida "Pasar a asesor"); plan B si Kommo no deja terminar el bot.
+  kommo: { subdominio: 'autoonlinesdclientes', embudo: 13701499, etapaAsesor: 105739403, pasoAsesor: 5 },
 
   // Recordatorio por WhatsApp el día anterior a la cita: a esta hora la app pasa el lead a la etapa
   // de recordatorio (variable KOMMO_ETAPA_RECORDATORIO) y el bot de esa etapa manda la plantilla.
@@ -29,10 +30,8 @@ module.exports = {
   // Cuántos vehículos se pueden recibir dentro de la misma hora (9:00 y 9:30 cuentan juntos).
   capacidadPorHora: 2,
 
-  // Máximo de citas por día, repartidas por jornada: la mañana va hasta antes de las 12:00 y la tarde desde las 12:00.
-  // Cualquier turno del horario sirve, mientras la jornada tenga cupo.
-  citasPorJornada: { manana: 2, tarde: 2 },
-  mediodia: '12:00',
+  // Máximo de citas por día, en cualquier turno del horario (sin dividir mañana y tarde).
+  citasPorDia: 4,
 
   // Límites para lo que agenda el bot (las citas que pones tú a mano no los usan).
   diasAdelante: 14, // hasta cuántos días en el futuro se puede agendar

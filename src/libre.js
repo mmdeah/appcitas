@@ -609,8 +609,10 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
   // estado: lo guardado (o null si es el primer mensaje con los datos).
   async function responder({ estado, mensaje, servicio, contacto = {}, lead }) {
     const momento = ahora(reloj());
-    const s = estado && estado.modo === 'libre'
-      ? { ...estado, datos: { ...estado.datos } }
+    // Si el bot se había apagado (corte) hace menos de 24 h, se retoma con los datos que ya dio el cliente.
+    const vigente = estado && (!estado.cerrada || Date.now() - Date.parse(estado.cerradaEn || 0) < 24 * 60 * 60 * 1000);
+    const s = estado && estado.modo === 'libre' && vigente
+      ? { ...estado, datos: { ...estado.datos }, cerrada: false }
       : {
           modo: 'libre',
           lead: lead ? String(lead) : null,
@@ -628,6 +630,12 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     );
     const textoDe = (r) => [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
     // Al pasar a asesor el bot no le escribe nada al cliente (ver atencion.js); así queda en la memoria.
+    const conDatosGuardados = (r) => {
+      if (r.estado === 'asesor') {
+        r.cerrado = { ...s, datos: { ...s.datos }, cerrada: true, cerradaEn: new Date().toISOString(), preguntando: null, propuesta: null, rechazadas: [], yaDicho: [], sinAvance: 0 };
+      }
+      return r;
+    };
     const SIN_RESPUESTA = '(el bot no respondió: lo atiende un asesor)';
     const guardarEnMemoria = (respuesta) => {
       if (!memoria || !s.lead) return;
@@ -672,7 +680,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
         ? asesor('', 'pidio_asesor')
         : asesor('', 'despedida');
       guardarEnMemoria(SIN_RESPUESTA);
-      return r;
+      return conDatosGuardados(r);
     }
 
     // Respuesta al turno ofrecido: "sí" lo toma; "no" (sin decir otro día ni hora) pide el siguiente.
@@ -693,7 +701,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       console.log('Bot: mensaje fuera de lugar, paso a asesor', { lead: s.lead });
       const r = asesor('', 'fuera_de_lugar');
       guardarEnMemoria(SIN_RESPUESTA);
-      return r;
+      return conDatosGuardados(r);
     }
 
     let r;
@@ -773,7 +781,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       r.siguiente.ultimaPregunta = final.slice(0, 300);
       r.siguiente.yaDicho = [...yaDicho, normalizar(base)].slice(-6);
     }
-    return r;
+    return conDatosGuardados(r);
   }
 
   return { responder };
