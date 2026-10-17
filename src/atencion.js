@@ -15,11 +15,14 @@ const MAX_TEXTO = 80;
 //   es el que espera al cliente. estado = "botones" o "texto" decide a cuál bloque va.
 // Las respuestas finales (cita agendada, pasar a asesor) se mandan directo.
 // Terminar el bot sin escribirle nada al cliente (Kommo acepta "goto" además de "show").
+// "goto finish" Kommo lo acepta pero el bot Agenda seguía vivo en su Pausa; por eso se salta al bloque que pasa
+// a LLAMAR (el final del bot). Si ese salto falla, se intenta "finish".
+const AL_BLOQUE_ASESOR = () => ({ handler: 'goto', params: { type: 'question', step: config.kommo.pasoAsesor } });
 const TERMINAR = { handler: 'goto', params: { type: 'finish', step: 0 } };
 
 function paraKommo(r) {
   // Cuando el bot corta (pasa a asesor), no le dice nada al cliente: el asesor revisa los chats sin responder.
-  if (r.data.estado === 'asesor') return { data: r.data, handlers: [TERMINAR], silencio: true };
+  if (r.data.estado === 'asesor') return { data: r.data, handlers: [AL_BLOQUE_ASESOR()], silencio: true };
   if (r.data.estado !== 'esperar') {
     return { data: r.data, handlers: r.handlers.length ? r.handlers : [mostrar('Un asesor te escribe en un momento 🙌')] };
   }
@@ -77,11 +80,13 @@ function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
 
     const { data: datos, handlers, silencio } = paraKommo(r);
     if (silencio) {
-      // El bot termina callado: el lead pasa a LLAMAR y queda una nota con el motivo para el asesor.
-      if (lead && kommo.moverLead) {
+      // El bot termina callado: el lead pasa a LLAMAR y queda una nota con el motivo para el asesor
+      // (si ya se había cortado antes, no se repite la nota ni el cambio de etapa).
+      const repetido = datos.motivo === 'ya_cortado';
+      if (lead && kommo.moverLead && !repetido) {
         await kommo.moverLead(lead, config.kommo.etapaAsesor).catch((err) => console.warn('Kommo: no pude pasar el lead a LLAMAR', lead, err.message));
       }
-      if (lead) {
+      if (lead && !repetido) {
         await kommo
           .nota(lead, `Bot: no respondió y dejó el chat para un asesor (motivo: ${datos.motivo || 'sin motivo'}).`)
           .catch((err) => console.warn('Kommo: no pude dejar la nota en el lead', lead, err.message));
@@ -89,10 +94,9 @@ function crearAtencion({ bot, conversaciones, kommo, libre = null }) {
       try {
         await kommo.continuar(direccion, { data: datos, execute_handlers: handlers });
       } catch (err) {
-        // Si Kommo no acepta terminar con "goto finish", se salta al bloque del bot que pasa a LLAMAR (sin mensaje).
-        // Ojo: NO al paso 1, que en el bot Agenda es la Pausa que espera mensajes (el bot seguiría respondiendo).
-        console.warn('Kommo: no aceptó terminar el bot en silencio, salto al bloque de asesor:', err.message);
-        await kommo.continuar(direccion, { data: datos, execute_handlers: [{ handler: 'goto', params: { type: 'question', step: config.kommo.pasoAsesor } }] });
+        // Ojo: nunca al paso 1, que en el bot Agenda es la Pausa que espera mensajes (el bot seguiría respondiendo).
+        console.warn('Kommo: no aceptó saltar al bloque de asesor, intento terminar el bot:', err.message);
+        await kommo.continuar(direccion, { data: datos, execute_handlers: [TERMINAR] });
       }
       console.log('Kommo: bot terminado sin responder (pasa a asesor)', { lead, motivo: datos.motivo });
       return r;

@@ -609,8 +609,17 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
   // estado: lo guardado (o null si es el primer mensaje con los datos).
   async function responder({ estado, mensaje, servicio, contacto = {}, lead }) {
     const momento = ahora(reloj());
-    // Si el bot se había apagado (corte) hace menos de 24 h, se retoma con los datos que ya dio el cliente.
-    const vigente = estado && (!estado.cerrada || Date.now() - Date.parse(estado.cerradaEn || 0) < 24 * 60 * 60 * 1000);
+    // Si el bot ya cortó hace menos de 1 hora, el bot de Kommo puede seguir vivo (su Pausa dura 1 hora) y mandar
+    // los mensajes del cliente: la app se queda callada. Pasada la hora es una conversación nueva: se retoma
+    // con los datos que ya dio el cliente (hasta 24 h).
+    const desdeCorte = estado && estado.cerrada ? Date.now() - Date.parse(estado.cerradaEn || 0) : Infinity;
+    if (desdeCorte < 61 * 60 * 1000) {
+      console.log('Bot: ya se había cortado esta conversación, sigo callado', { lead });
+      const r = asesor('', 'ya_cortado');
+      r.cerrado = estado; // se conservan los datos y la hora del corte
+      return r;
+    }
+    const vigente = estado && (!estado.cerrada || desdeCorte < 24 * 60 * 60 * 1000);
     const s = estado && estado.modo === 'libre' && vigente
       ? { ...estado, datos: { ...estado.datos }, cerrada: false }
       : {

@@ -403,7 +403,7 @@ test('al cortar no se le escribe nada al cliente: termina el bot, pasa el lead a
   } finally {
     console.log = log;
   }
-  assert.deepEqual(enviados[0].execute_handlers, [{ handler: 'goto', params: { type: 'finish', step: 0 } }]);
+  assert.deepEqual(enviados[0].execute_handlers, [{ handler: 'goto', params: { type: 'question', step: 5 } }]);
   assert.deepEqual(movidos, [['77', 105739403]]);
   assert.match(notas[0], /no respondió/);
 });
@@ -421,24 +421,36 @@ test('sugiere la hora más temprana; "sí" la acepta y "no" ofrece la siguiente'
   assert.equal(listo.cita.hora, '09:00');
 });
 
-test('caso real Alexander: si el bot se apagó y el cliente vuelve, retoma con sus datos (no se los vuelve a pedir)', async () => {
+test('caso real Alexander: tras el corte el bot sigue callado 1 hora; después retoma con sus datos', async () => {
   const enviados = [];
-  const kommo = { contactoDelLead: async () => ({ telefono: '3113420200' }), continuar: async (u, c) => enviados.push(c), nota: async () => {}, moverLead: async () => {} };
+  const notas = [];
+  const kommo = { contactoDelLead: async () => ({ telefono: '3113420200' }), continuar: async (u, c) => enviados.push(c), nota: async (l, t) => notas.push(t), moverLead: async () => {} };
+  const conversaciones = crearConversaciones(db);
   const media = crearAgenda(db, { ...cfg, intervaloMinutos: 30, citasPorDia: 4 }, reloj);
   // Las 9:00 y 9:30 del jueves ya están ocupadas (2 por hora): el bot le ofrece otra hora.
   media.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '09:00', cliente: 'X', telefono: '3000000001' });
   media.reservar({ servicio: 'REVISION', fecha: '2026-10-08', hora: '09:30', cliente: 'Y', telefono: '3000000002' });
-  const atender = crearAtencion({ bot: crearBot(media, { reloj }), conversaciones: crearConversaciones(db), kommo, libre: crearConversacionLibre(media, { reloj }) });
+  const atender = crearAtencion({ bot: crearBot(media, { reloj }), conversaciones, kommo, libre: crearConversacionLibre(media, { reloj }) });
   const log = console.log;
   console.log = () => {};
+  let callado;
+  let vuelve;
   try {
     await atender({ data: { lead: '88', inicio: 'no', mensaje: 'Alexander Castro, Suzuki Cross 2023, LKX983, el jueves a las 9:30' }, return_url: 'x' });
     await atender({ data: { lead: '88', inicio: 'no', mensaje: 'Ya te confirmo, gracias' }, return_url: 'x' });
-    var vuelve = await atender({ data: { lead: '88', inicio: 'no', mensaje: 'el jueves a las 11' }, return_url: 'x' });
+    // A los 17 minutos (el bot de Kommo seguía vivo): callado, sin otra nota.
+    callado = await atender({ data: { lead: '88', inicio: 'no', mensaje: 'Tipo 11 no tienes cupo?' }, return_url: 'x' });
+    // Pasadas 2 horas es otra conversación: retoma con los datos.
+    const guardado = conversaciones.leer('88');
+    conversaciones.guardar('88', { ...guardado, cerradaEn: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() });
+    vuelve = await atender({ data: { lead: '88', inicio: 'no', mensaje: 'el jueves a las 11' }, return_url: 'x' });
   } finally {
     console.log = log;
   }
   assert.equal(enviados[1].execute_handlers[0].handler, 'goto'); // se despidió: callado
+  assert.equal(callado.data.motivo, 'ya_cortado');
+  assert.equal(enviados[2].execute_handlers[0].handler, 'goto');
+  assert.equal(notas.filter((n) => /no respondió/.test(n)).length, 1);
   assert.equal(vuelve.estado, 'listo');
   assert.deepEqual([vuelve.cita.cliente, vuelve.cita.placa, vuelve.cita.hora], ['Alexander Castro', 'LKX983', '11:00']);
 });
