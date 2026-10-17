@@ -204,6 +204,9 @@ function horaEscrita(t, soloNumero = false) {
   const m =
     limpio.match(new RegExp(`\\b(\\d{1,2}):(\\d{2})\\b${sufijo}`)) ||
     limpio.match(new RegExp(`\\ba las (\\d{1,2})(?: y (media|30))?\\b${sufijo}`)) ||
+    // "tipo 11", "como a las 11", "a eso de las 3", "sobre las 10", "las 11"
+    limpio.match(new RegExp(`\\b(?:tipo|como|a eso de|sobre|tipo a|como a)(?: las)? (\\d{1,2})(?: y (media|30))?\\b(?!:)${sufijo}`)) ||
+    limpio.match(new RegExp(`^(?:y )?las (\\d{1,2})(?: y (media|30))?\\b${sufijo}`)) ||
     limpio.match(/\b(\d{1,2})()\s*(a m|am|p m|pm|de la tarde)\b/) ||
     (soloNumero && limpio.match(new RegExp(`^(\\d{1,2})(?: y (media|30))?${sufijo}$`)));
   if (!m) return null;
@@ -350,7 +353,7 @@ function extraerConReglas(textoOriginal, s, momento) {
 
   const fecha = fechaEscrita(t, momento.fecha, s.preguntando === 'fecha');
   if (fecha) r.fecha = fecha;
-  const hora = horaEscrita(t, s.preguntando === 'hora');
+  const hora = horaEscrita(t, s.preguntando === 'hora' || s.preguntando === 'propuesta');
   if (hora) r.hora = hora;
 
   if (/^(no|cambia|cambiar|mejor|otro|otra)\b/.test(t) || /\bno me (sirve|queda|puedo)\b/.test(t)) {
@@ -609,19 +612,13 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
   // estado: lo guardado (o null si es el primer mensaje con los datos).
   async function responder({ estado, mensaje, servicio, contacto = {}, lead }) {
     const momento = ahora(reloj());
-    // Si el bot ya cortó hace menos de 1 hora, el bot de Kommo puede seguir vivo (su Pausa dura 1 hora) y mandar
-    // los mensajes del cliente: la app se queda callada. Pasada la hora es una conversación nueva: se retoma
-    // con los datos que ya dio el cliente (hasta 24 h).
-    const desdeCorte = estado && estado.cerrada ? Date.now() - Date.parse(estado.cerradaEn || 0) : Infinity;
-    if (desdeCorte < 61 * 60 * 1000) {
-      console.log('Bot: ya se había cortado esta conversación, sigo callado', { lead });
-      const r = asesor('', 'ya_cortado');
-      r.cerrado = estado; // se conservan los datos y la hora del corte
-      return r;
-    }
-    const vigente = estado && (!estado.cerrada || desdeCorte < 24 * 60 * 60 * 1000);
+    // El bot recuerda 24 h lo que habló con el cliente (sus datos y el turno que le ofreció), aunque se haya apagado.
+    // Si el cliente vuelve sobre la cita, se sigue con ese contexto; si no escribe en 24 h, se olvida todo.
+    const ultimo = estado ? Date.parse(estado.ultimoMensaje || estado.cerradaEn || 0) : 0;
+    const vigente = Boolean(estado) && (!ultimo || Date.now() - ultimo < 24 * 60 * 60 * 1000);
+    const veniaApagado = Boolean(estado && estado.cerrada && vigente);
     const s = estado && estado.modo === 'libre' && vigente
-      ? { ...estado, datos: { ...estado.datos }, cerrada: false }
+      ? { ...estado, datos: { ...estado.datos }, cerrada: false, sinAvance: 0 }
       : {
           modo: 'libre',
           lead: lead ? String(lead) : null,
@@ -640,8 +637,14 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
     const textoDe = (r) => [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean).join('\n');
     // Al pasar a asesor el bot no le escribe nada al cliente (ver atencion.js); así queda en la memoria.
     const conDatosGuardados = (r) => {
+      const ahoraISO = new Date().toISOString();
       if (r.estado === 'asesor') {
-        r.cerrado = { ...s, datos: { ...s.datos }, cerrada: true, cerradaEn: new Date().toISOString(), preguntando: null, propuesta: null, rechazadas: [], yaDicho: [], sinAvance: 0 };
+        // Se apaga, pero se guarda lo hablado (datos y turno ofrecido) por si el cliente vuelve sobre la cita.
+        r.cerrado = { ...s, datos: { ...s.datos }, cerrada: true, cerradaEn: s.cerradaEn && veniaApagado ? s.cerradaEn : ahoraISO, ultimoMensaje: ahoraISO, sinAvance: 0 };
+        // Si ya estaba apagado y el cliente sigue con otra cosa: callado, sin repetir la nota ni el cambio de etapa.
+        if (veniaApagado) r.data.motivo = 'ya_cortado';
+      } else if (r.siguiente) {
+        r.siguiente.ultimoMensaje = ahoraISO;
       }
       return r;
     };
@@ -698,6 +701,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       nuevo.fecha = propuesta.fecha;
       nuevo.hora = propuesta.hora;
     }
+    if (propuesta && nuevo.hora && !nuevo.fecha && !s.datos.fecha) nuevo.fecha = propuesta.fecha;
     const rechazo = Boolean(propuesta && confirma === false && !nuevo.fecha && !nuevo.hora);
 
     const antes = JSON.stringify(s.datos);
