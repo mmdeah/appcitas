@@ -12,7 +12,7 @@ module.exports = {
 
   // Recordatorio por WhatsApp el día anterior a la cita: a esta hora la app pasa el lead a la etapa
   // de recordatorio (variable KOMMO_ETAPA_RECORDATORIO) y el bot de esa etapa manda la plantilla.
-  recordatorio: { desde: '07:00', hasta: '12:00' },
+  recordatorio: { desde: '07:00', hasta: '18:00' }, // si algo se activa tarde, igual salen ese mismo día
 
   // Horas en las que puede EMPEZAR una cita, por día de la semana
   // (0 = domingo, 1 = lunes … 6 = sábado). Un día que no aparece no recibe citas.
