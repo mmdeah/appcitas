@@ -117,8 +117,17 @@ function crearKommo({ secreto = process.env.KOMMO_SECRET, token = process.env.KO
     return etapa ? etapa.id : null;
   }
 
+  // IDs de los leads que están en una etapa del embudo (Kommo responde vacío cuando no hay ninguno).
+  async function leadsEnEtapa(etapa) {
+    const datos = await api(
+      `/api/v4/leads?filter[statuses][0][pipeline_id]=${Number(config.kommo.embudo)}&filter[statuses][0][status_id]=${Number(etapa)}&limit=250`
+    );
+    return (datos?._embedded?.leads || []).map((l) => String(l.id));
+  }
+
   return {
     activo,
+    leadsEnEtapa,
     moverLead,
     etapaPorNombre,
     verificar: (jwt) => verificarToken(jwt, secreto),

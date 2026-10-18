@@ -13,6 +13,7 @@ const { crearKommo, leerCuerpo } = require('./kommo');
 const { crearAtencion } = require('./atencion');
 const { crearIA } = require('./ia');
 const { crearRecordatorios } = require('./recordatorios');
+const { crearReprogramaciones } = require('./reprogramar');
 const { crearMemoria } = require('./memoria');
 const { crearApi } = require('./api');
 const { crearConversacionLibre } = require('./libre');
@@ -58,12 +59,18 @@ console.log(ia.activa ? 'IA de OpenRouter activa.' : 'IA sin configurar (OPENROU
 if (!kommo.activo) console.log('Kommo sin configurar: faltan KOMMO_SECRET y/o KOMMO_TOKEN. El bot no agendará.');
 const recordatorios = crearRecordatorios({ agenda, kommo });
 if (recordatorios.activo) {
-  // Revisa cada 5 minutos; solo actúa entre las 7 a. m. y el mediodía.
+  // Revisa cada 5 minutos; solo actúa el día anterior entre las 7 a. m. y las 6 p. m.
   setInterval(() => recordatorios.revisar().catch((err) => console.error('Recordatorios:', err)), 5 * 60 * 1000).unref();
   recordatorios.revisar().catch((err) => console.error('Recordatorios:', err));
   console.log('Recordatorios activos: 7 a. m. del día anterior (etapa RECORDATORIO de Kommo).');
 } else {
   console.log('Recordatorios apagados (variable RECORDATORIOS=si para encenderlos).');
+}
+// Si el cliente toca "Reprogramar" en el recordatorio, el bot lo pasa a la etapa REPROGRAMAR y aquí se cancela su cita.
+const reprogramaciones = crearReprogramaciones({ agenda, kommo });
+if (reprogramaciones.activo) {
+  setInterval(() => reprogramaciones.revisar(), 2 * 60 * 1000).unref();
+  reprogramaciones.revisar();
 }
 const CSS = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'));
 
