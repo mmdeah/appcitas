@@ -669,9 +669,12 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     };
 
     // Agente de IA (si está encendido para este cliente): decide qué hacer y qué decir dentro de sus funciones
-    // y límites; la app verifica la decisión (ver agente.js). Si no pasa la verificación, siguen las reglas de siempre.
+    // y límites; la app verifica la decisión (ver agente.js). Responde SOLO la IA: si no puede o la app la frena,
+    // el bot se calla y el chat queda para el asesor (el bot de reglas solo trabaja con el agente apagado).
     if (agente && texto && agente.paraQuien(s.datos.telefono || contacto.telefono)) {
       const pedido = extraerConReglas(texto, s, momento);
+      // Si el cliente escribió su celular, se guarda (cuando no lo trae el contacto de WhatsApp).
+      if (!s.datos.telefono && telefonoValido(texto)) s.datos.telefono = telefonoValido(texto);
       const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora, franja: pedido.franja } });
       if (dec) {
         Object.assign(s.datos, dec.datos);
@@ -680,6 +683,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
           r = asesor('', `ia: ${dec.motivo || 'fuera de sus funciones'}`.slice(0, 70));
         } else if (dec.accion === 'agendar') {
           r = guardar({ ...s, datos: { ...s.datos, fecha: dec.turno.fecha, hora: dec.turno.hora }, preguntando: null, propuesta: null, sinAvance: 0 });
+          if (r.estado === 'esperar' && r.siguiente && r.siguiente.preguntando === 'telefono') r = asesor('', 'ia_sin_celular');
         } else {
           const sig = { ...s, datos: { ...s.datos }, confirmando: false, sinAvance: 0 };
           if (dec.turno) {
@@ -705,6 +709,11 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
         }
         return conDatosGuardados(r);
       }
+      // La IA no pudo responder o la app la frenó: el bot no inventa ni usa reglas, se calla.
+      const r = asesor('', 'ia_no_pudo');
+      r.data.decidio = 'ia';
+      guardarEnMemoria(SIN_RESPUESTA);
+      return conDatosGuardados(r);
     }
 
     let deIA = {};

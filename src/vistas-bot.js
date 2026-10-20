@@ -81,7 +81,7 @@ function tarjetaPensamiento({ aprobada, accion, turno, motivo, razon, datos }) {
   ${turnoLeible ? `<p><b>Turno:</b> ${esc(turnoLeible)}</p>` : ''}
   ${entendio && entendio.length ? `<p><b>Entendió:</b> ${entendio.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' · ')}</p>` : ''}
   ${motivo ? `<p><b>Por qué:</b> ${esc(motivo)}</p>` : ''}
-  ${aprobada ? '<p class="verifica">✅ La app revisó la decisión y la dejó pasar.</p>' : `<p class="verifica">Razón: ${esc(razon || 'no cumplió las reglas')}. Respondió el bot de reglas.</p>`}
+  ${aprobada ? '<p class="verifica">✅ La app revisó la decisión y la dejó pasar.</p>' : `<p class="verifica">Razón: ${esc(razon || 'no cumplió las reglas')}. El bot se calló: el chat queda para ti.</p>`}
 </div>`;
 }
 
@@ -162,7 +162,7 @@ ${errores.length ? `<div class="alerta mal">${errores.map((e) => `<p>${esc(e)}</
 
 <section class="tarjeta reglas-bot">
   <h2>Sus paredes</h2>
-  <p class="sub">Lo que la app revisa en <b>cada</b> decisión de la IA antes de enviarla. Si algo no cumple, no se envía y responde el bot de reglas.</p>
+  <p class="sub">Lo que la app revisa en <b>cada</b> decisión de la IA antes de enviarla. Si algo no cumple, no se envía y el bot se calla: el chat queda para ti.</p>
   <ul class="lista-paredes">
     <li>Solo atiende: agendar la cita, dirección, horario, precio y duración. Lo demás: se calla y lo atiendes tú.</li>
     <li>Solo ofrece o agenda turnos que estén libres de verdad.</li>
@@ -189,7 +189,7 @@ function botSimulador({ sesion, ejemplos, iaActiva }) {
   const globo = !ultimo ? (iaActiva ? 'Escríbeme como si fueras un cliente 👇' : 'Sin la clave de OpenRouter solo responden las reglas.')
     : ultimo.estado === 'listo' ? '¡Cita agendada! (de práctica)'
     : ultimo.estado === 'asesor' ? 'Aquí me callo: esto lo atiende una persona.'
-    : ultimo.pensamiento && !ultimo.pensamiento.aprobada ? 'La app me frenó… respondieron las reglas.'
+    : ultimo.pensamiento && !ultimo.pensamiento.aprobada ? 'La app me frenó, así que me quedé callado.'
     : 'Esperando tu respuesta…';
   const burbujas = chat
     .map((t, i) => {

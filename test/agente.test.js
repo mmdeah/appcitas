@@ -102,11 +102,12 @@ test('caso real José: placa con O y sábado 24 a las 11 → agenda de una', asy
   assert.equal(r.cita.placa, 'NCY066');
 });
 
-test('si la IA se sale de las paredes, no se hace lo que dijo: responden las reglas', async () => {
+test('si la IA se sale de las paredes, no se hace lo que dijo y el bot se calla (no responden reglas)', async () => {
   const charla = conIA([{ accion: 'ofrecer', datos: {}, turno: { fecha: '2026-10-20', hora: '15:30' }, mensaje: 'Tenemos libre de 8:30 a 3:30, dime cuál.' }]);
   const [r] = await charla(['Juan Pérez, Mazda 3 2018, ABC123, el martes']);
-  assert.notEqual(r.data.decidio, 'ia');
-  assert.doesNotMatch(textos(r).join(' '), /8:30 a 3:30/);
+  assert.equal(r.estado, 'asesor');
+  assert.equal(r.data.motivo, 'ia_no_pudo');
+  assert.deepEqual(textos(r), []);
 });
 
 test('cortar: la IA decide cortar y el bot no le escribe nada al cliente', async () => {
@@ -169,3 +170,21 @@ test('el saco de dinero no sale nunca en los mensajes', () => {
   assert.equal(pulir('💰 La revisión cuesta $60.000. ¿Te sirve mañana?'), 'La revisión cuesta $60.000. ¿Te sirve mañana?');
   assert.equal(pulir('La revisión cuesta $60.000 💰'), 'La revisión cuesta $60.000');
 });
+
+test('caso real Francisco: cliente sin celular en Kommo → la IA lo pide una vez, lo guarda y agenda (sin bucle)', silencio(async () => {
+  const respuestas = [
+    { accion: 'agendar', datos: { nombre: 'Francisco Ruiz', vehiculo: 'Kia Picanto 2018', placa: 'FRA123', telefono: null }, turno: { fecha: '2026-10-24', hora: '11:00' }, mensaje: '' },
+    { accion: 'agendar', datos: { telefono: '321 2857455' }, turno: { fecha: '2026-10-24', hora: '11:00' }, mensaje: '' },
+  ];
+  const ia = { activa: true, json: async () => respuestas.shift(), extraer: async () => ({}), redactar: async () => null };
+  const agente = crearAgente({ ia, agenda, reloj, modo: 'si' });
+  const libre = crearConversacionLibre(agenda, { ia, agente, reloj });
+  const sinCelular = {}; // escribió desde una cuenta sin número
+  const pide = await libre.responder({ estado: null, mensaje: 'Francisco Ruiz, Picanto 2018, FRA123, sábado a las 11', servicio: 'REVISION', contacto: sinCelular, lead: '9' });
+  assert.equal(pide.estado, 'esperar');
+  assert.match(textos(pide)[0], /número de celular/);
+  assert.deepEqual(pide.siguiente.propuesta, { fecha: '2026-10-24', hora: '11:00' });
+  const listo = await libre.responder({ estado: pide.siguiente, mensaje: '321 2857455', servicio: 'REVISION', contacto: sinCelular, lead: '9' });
+  assert.equal(listo.estado, 'listo');
+  assert.deepEqual([listo.cita.telefono, listo.cita.fecha, listo.cita.hora], ['573212857455', '2026-10-24', '11:00']);
+}));

@@ -38,7 +38,8 @@ function instrucciones({ hoy, hora, servicio }) {
 Hoy es ${fechaLarga(hoy)} (${hoy}) y son las ${hora}.
 
 TUS FUNCIONES (lo único que haces):
-1. Agendar esta cita. Para agendar necesitas: nombre, vehículo (marca, modelo y año), placa, y un turno (día y hora) de la lista TURNOS LIBRES que el cliente haya aceptado.
+1. Agendar esta cita. Para agendar necesitas: nombre, vehículo (marca, modelo y año), placa, un celular de contacto y un turno (día y hora) de la lista TURNOS LIBRES que el cliente haya aceptado.
+   El celular casi siempre ya está en DATOS CONOCIDOS (es el de WhatsApp). Solo si ahí dice null, pídelo UNA vez ("¿A qué número de celular te podemos escribir?"); cuando lo dé, ponlo en datos.telefono. Celular colombiano: 10 dígitos que empiezan por 3.
 2. Responder solo estas preguntas, con estos datos exactos:
    - Dirección: "📍 Estamos en la ${config.direccion}."
    - Horario de atención: "🕘 ${HORARIO_ATENCION}"
@@ -72,7 +73,7 @@ TUS LÍMITES (paredes que nunca cruzas):
 
 Responde SOLO con un objeto JSON:
 {"accion": "preguntar" | "ofrecer" | "agendar" | "responder" | "cortar",
- "datos": {"nombre": string|null, "vehiculo": string|null, "placa": string|null},
+ "datos": {"nombre": string|null, "vehiculo": string|null, "placa": string|null, "telefono": string|null},
  "turno": {"fecha": "YYYY-MM-DD", "hora": "HH:MM"} | null,
  "mensaje": "texto para el cliente (vacío si es cortar o agendar)",
  "motivo": "explicación corta de tu decisión"}
@@ -129,6 +130,10 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {}, prop
     const placa = placaValida(d.placa);
     if (placa) nuevos.placa = placa;
   }
+  // Celular colombiano: 10 dígitos que empiezan por 3 (se guarda con el 57 adelante).
+  const tel = String(d.telefono || '').replace(/\D/g, '');
+  if (/^3\d{9}$/.test(tel)) nuevos.telefono = `57${tel}`;
+  else if (/^573\d{9}$/.test(tel)) nuevos.telefono = tel;
 
   // Turno: tiene que existir en la agenda y estar libre.
   let turno = null;
@@ -148,6 +153,10 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {}, prop
   }
   const todos = { ...datos, ...nuevos };
   if (accion === 'agendar' && !(todos.nombre && todos.vehiculo && todos.placa)) return { ok: false, razon: 'agendar con datos incompletos' };
+  // Quiere agendar pero falta el celular: en vez de agendar, se le pide el celular una vez y se guarda el turno.
+  if (accion === 'agendar' && !todos.telefono) {
+    return { ok: true, decision: { accion: 'preguntar', datos: nuevos, turno, mensaje: 'Para dejar lista tu cita, ¿a qué número de celular te podemos escribir?', motivo: 'falta el celular para agendar' } };
+  }
 
   // Mensaje para el cliente: obligatorio (salvo al agendar) y dentro de las reglas de tono y de "un solo turno".
   const mensaje = String(decision.mensaje || '').trim();
@@ -212,7 +221,7 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
     const momento = ahora(reloj());
     const { libres, texto: lista } = turnosLibres(agenda, momento.fecha, config.diasAdelante || 14);
     const conversacion = historial.slice(-30).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
-    const conocidos = { nombre: s.datos.nombre || null, vehiculo: s.datos.vehiculo || null, placa: s.datos.placa || null };
+    const conocidos = { nombre: s.datos.nombre || null, vehiculo: s.datos.vehiculo || null, placa: s.datos.placa || null, telefono: s.datos.telefono || null };
     const ofrecido = s.propuesta ? `${s.propuesta.fecha} ${s.propuesta.hora}` : 'ninguno';
     const usuario = [
       `CONVERSACIÓN (también de días anteriores):\n${conversacion || '(inicio)'}`,
