@@ -163,3 +163,9 @@ test('naturalidad: no repite la misma entrada ni el emoji del mensaje anterior; 
   assert.match(ofrecer('13:00', '¿Te sirve el jueves 22 a la 1:00 p. m.?').razon, /más tarde/);
   assert.equal(ofrecer('15:00', '¿Te sirve el jueves 22 a las 3:00 p. m.?').ok, true);
 });
+
+test('el saco de dinero no sale nunca en los mensajes', () => {
+  const { pulir } = require('../src/agente');
+  assert.equal(pulir('💰 La revisión cuesta $60.000. ¿Te sirve mañana?'), 'La revisión cuesta $60.000. ¿Te sirve mañana?');
+  assert.equal(pulir('La revisión cuesta $60.000 💰'), 'La revisión cuesta $60.000');
+});

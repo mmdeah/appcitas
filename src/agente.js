@@ -103,7 +103,7 @@ const numerosDe = (texto) => (String(texto).match(/\d+/g) || []).map((n) => Stri
 const EMOJIS_DE_ADORNO = /\s*(?:👍|🙌|😊|🙂|😉|✨|🤝|👌|🚗|🔧|✅)\s*/gu;
 function pulir(mensaje, anterior = '') {
   let m = String(mensaje || '').trim();
-  m = m.replace(/💰s*/gu, ''); // el saco de dinero no va nunca
+  m = m.replace(/💰\s*/gu, '').trim(); // el saco de dinero no va nunca
   if (anterior && /\p{Extended_Pictographic}/u.test(anterior)) m = m.replace(EMOJIS_DE_ADORNO, ' ').replace(/\s{2,}/g, ' ').trim();
   const entrada = (t) => (String(t).match(/^[^.!?¿,]{2,25}[.!,]\s+/) || [''])[0];
   const repetida = entrada(m);
