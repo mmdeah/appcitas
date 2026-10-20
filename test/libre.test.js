@@ -476,3 +476,15 @@ test('caso real Alexander: el bot recuerda 24 h lo ofrecido aunque se haya apaga
   assert.equal(olvidado.estado, 'esperar');
   assert.equal(olvidado.siguiente.datos.nombre, undefined);
 });
+
+test('franjas: "en la tarde" es de 1:00 a 3:00 p. m. y "en la mañana" de 8:30 a 11:00 a. m.', async () => {
+  const { franjaEscrita } = require('../src/libre');
+  assert.equal(franjaEscrita('el jueves en la tarde'), 'tarde');
+  assert.equal(franjaEscrita('manana en la manana'), 'manana');
+  assert.equal(franjaEscrita('mas tarde'), null);
+  const libre = crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
+  const [tarde, no, manana] = await charla(libre, ['Luis Ruiz, Nissan Versa 2019, XYZ789, el jueves en la tarde', 'no', 'el viernes en la mañana']);
+  assert.match(textos(tarde).join(' '), /jueves 8 a las 1:00 p\. m\./);
+  assert.match(textos(no)[0], /¿Qué día y hora te quedan mejor\?/);
+  assert.match(textos(manana).join(' '), /viernes 9 a las 8:30 a\. m\./);
+});

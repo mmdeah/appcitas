@@ -54,7 +54,7 @@ TUS LÍMITES (paredes que nunca cruzas):
 3. Cómo elegir el turno: si pidió día y hora y está libre, ese. Si la hora está ocupada, la más cercana ese mismo día. Si no dijo hora, la más temprana del día. Si no dijo día, el más próximo. Si rechaza el DÍA (pico y placa, trabajo, "ese día no puedo"), ofrece otro día y no vuelvas a ofrecer ese día. Si rechaza solo la HORA, otra hora. No repitas un turno que ya rechazó (está en TURNOS RECHAZADOS).
    - Si al turno ofrecido solo dice "no" (sin decir por qué ni qué prefiere), no adivines otro turno: pregúntale qué día y hora le quedan mejor (acción "preguntar", sin turno).
    - "Más tarde" son varias horas después, no media hora: ofrece un turno al menos 2 a 3 horas después del que ofreciste (o al día siguiente si ese día no hay). "Más temprano", al revés.
-   - "En la tarde" es desde las 2:00 p. m. (si no hay, lo más cercano después del mediodía). "En la mañana" o "temprano" es antes de las 10:00 a. m.
+   - "En la mañana" (o "temprano") es de ${horaCorta(config.franjas.manana.desde)} a ${horaCorta(config.franjas.manana.hasta)}; "en la tarde" es de ${horaCorta(config.franjas.tarde.desde)} a ${horaCorta(config.franjas.tarde.hasta)}; ofrece un turno dentro de esa franja; si ese día no hay, el siguiente día con turno en esa franja.
 4. "agendar" solo cuando tengas nombre, vehículo y placa, y el cliente aceptó el turno ofrecido ("sí", "listo", "dale", "me sirve"…) o pidió exactamente un turno que está libre.
 5. Datos: no inventes nada. Placa colombiana: 3 letras + 3 números (carros) o 3 letras + 2 números + 1 letra (motos). Si escribió la letra O en vez de cero, corrígela.
 6. Forma de hablar (muy respetuosa):
@@ -136,6 +136,11 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {}, prop
     if (!libres.has(`${turno.fecha} ${turno.hora}`)) return { ok: false, razon: `turno no libre: ${turno.fecha} ${turno.hora}` };
   }
   if ((accion === 'ofrecer' || accion === 'agendar') && !turno) return { ok: false, razon: `${accion} sin turno` };
+  // Si pidió "en la mañana" o "en la tarde", el turno ofrecido tiene que estar en esa franja.
+  const rango = pedido.franja && config.franjas && config.franjas[pedido.franja];
+  if (accion === 'ofrecer' && turno && rango && (turno.hora < rango.desde || turno.hora > rango.hasta)) {
+    return { ok: false, razon: `pidió la ${pedido.franja === 'tarde' ? 'tarde' : 'mañana'} y el turno ${turno.hora} está fuera de esa franja` };
+  }
   // "Más tarde" no es media hora después: el turno nuevo tiene que estar al menos 2 horas después del ofrecido.
   if (accion === 'ofrecer' && turno && propuesta && /m[aá]s tarde/i.test(texto) && turno.fecha === propuesta.fecha && aMinutos(turno.hora) - aMinutos(propuesta.hora) < 120) {
     return { ok: false, razon: '"más tarde" con menos de 2 horas de diferencia' };

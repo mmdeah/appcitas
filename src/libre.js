@@ -197,6 +197,15 @@ function fechaEscrita(t, hoy, soloNumero = false) {
   return buscar(true) || (dia ? buscar(false) : null);
 }
 
+// Franja del día cuando no dice hora exacta: "en la tarde" (1:00–3:00 p. m.) o "en la mañana" (8:30–11:00 a. m.).
+// "Más tarde" y "más temprano" no son franjas (son relativas al turno ofrecido).
+function franjaEscrita(t) {
+  if (/\bmas (tarde|tardecito|temprano)\b/.test(t)) return null;
+  if (/\b(en|por|de|a) la tarde\b|\bpor la tardecita\b|\bhoras de la tarde\b/.test(t)) return 'tarde';
+  if (/\b(en|por) la manana\b|\btemprano\b|\btempranito\b|\bhoras de la manana\b/.test(t)) return 'manana';
+  return null;
+}
+
 // Hora escrita: "10:30", "a las 2", "a las 9 y media", "3 pm", "2 de la tarde". Sin a. m./p. m., de 1 a 6 es tarde.
 function horaEscrita(t, soloNumero = false) {
   const limpio = sinPlacaNiAnio(t);
@@ -355,6 +364,7 @@ function extraerConReglas(textoOriginal, s, momento) {
   if (fecha) r.fecha = fecha;
   const hora = horaEscrita(t, s.preguntando === 'hora' || s.preguntando === 'propuesta');
   if (hora) r.hora = hora;
+  else if (franjaEscrita(t)) r.franja = franjaEscrita(t);
 
   if (/^(no|cambia|cambiar|mejor|otro|otra)\b/.test(t) || /\bno me (sirve|queda|puedo)\b/.test(t) || /\bmas (tarde|tardecito|temprano)\b/.test(t)) {
     r.confirma = false;
@@ -494,7 +504,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     } catch (err) {
       if (!(err instanceof ErrorAgenda)) throw err;
       if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        const turno = turnoParaOfrecer({ desde: d.fecha, hora: d.hora, excluir: [`${d.fecha} ${d.hora}`, ...(s.rechazadas || [])] });
+        const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: d.hora, excluir: [`${d.fecha} ${d.hora}`, ...(s.rechazadas || [])] });
         if (!turno) return asesor('', 'sin_cupos');
         const sig = { ...s, confirmando: false, preguntando: 'propuesta', propuesta: turno, datos: { ...d, fecha: null, hora: null } };
         return esperar(sig, [`Ese horario se acaba de ocupar. Te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`]);
@@ -509,7 +519,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
   // Un solo turno para ofrecer (nunca la lista completa: el taller no debe verse vacío).
   // Busca desde "desde" (o desde hoy) el primer día con cupo; ese día, la hora pedida si está libre,
   // la más cercana a la pedida (en empate, la más temprana) o, si no pidió hora, la más temprana.
-  function turnoParaOfrecer({ desde = null, hora = null, excluir = [] } = {}) {
+  function turnoParaOfrecer({ desde = null, hora = null, excluir = [], franja = null } = {}) {
+    const rango = franja && config.franjas && config.franjas[franja];
     const hoy = ahora(reloj()).fecha;
     const buscar = (inicio) => {
       for (let i = 0; i <= DIAS_EN_VENTANA + 1; i++) {
@@ -517,7 +528,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
         const libres = agenda
           .horasLibres(fecha)
           .map((h) => h.hora)
-          .filter((h) => !excluir.includes(`${fecha} ${h}`));
+          .filter((h) => !excluir.includes(`${fecha} ${h}`))
+          .filter((h) => !rango || (h >= rango.desde && h <= rango.hasta));
         if (!libres.length) continue;
         const elegida = hora
           ? [...libres].sort((a, b) => Math.abs(aMinutos(a) - aMinutos(hora)) - Math.abs(aMinutos(b) - aMinutos(hora)) || a.localeCompare(b))[0]
@@ -561,7 +573,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
         : cierre === 'Sin atención' ? 'no atendemos'
         : 'no tenemos turnos disponibles';
       const elPedido = pedido.slice(0, 7) === momento.fecha.slice(0, 7) ? `el ${diaCorto(pedido)}` : `el ${fechaLarga(pedido)}`;
-      const turno = turnoParaOfrecer({ desde: adelante > 0 && adelante <= plazo ? pedido : null, hora: d.hora, excluir });
+      const turno = turnoParaOfrecer({ franja: s.franja, desde: adelante > 0 && adelante <= plazo ? pedido : null, hora: d.hora, excluir });
       if (!turno) return asesor('', 'sin_cupos');
       d.fecha = null;
       d.hora = null;
@@ -571,7 +583,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     // La hora pedida no está libre ese día (ocupada o fuera de horario): se ofrece UNA, la más cercana.
     if (d.fecha && d.hora && !agenda.horasLibres(d.fecha).some((h) => h.hora === d.hora)) {
       const pedida = d.hora;
-      const turno = turnoParaOfrecer({ desde: d.fecha, hora: pedida, excluir });
+      const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: pedida, excluir });
       if (!turno) return asesor('', 'sin_cupos');
       const dia = diaCorto(d.fecha);
       d.fecha = null;
@@ -588,7 +600,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
 
       // Solo falta el día y/o la hora: se sugiere UN turno (el más temprano, o el más cercano a la hora que dijo).
       if (faltan.every((c) => c === 'fecha' || c === 'hora')) {
-        const turno = turnoParaOfrecer({ desde: d.fecha, hora: d.hora, excluir });
+        const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: d.hora, excluir });
         if (!turno) return asesor('', 'sin_cupos');
         return ofrecer(sig, turno, [saludo, `¿Te sirve ${textoTurno(turno)}?`].filter(Boolean).join(' '));
       }
@@ -660,7 +672,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     // y límites; la app verifica la decisión (ver agente.js). Si no pasa la verificación, siguen las reglas de siempre.
     if (agente && texto && agente.paraQuien(s.datos.telefono || contacto.telefono)) {
       const pedido = extraerConReglas(texto, s, momento);
-      const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora } });
+      const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora, franja: pedido.franja } });
       if (dec) {
         Object.assign(s.datos, dec.datos);
         let r;
@@ -726,6 +738,8 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
       hora: deReglas.hora || deIA.hora,
       telefono: deReglas.telefono,
     };
+    if (nuevo.hora) s.franja = null;
+    else if (deReglas.franja) s.franja = deReglas.franja;
     const confirma = deReglas.confirma ?? deIA.confirma;
     if (deReglas.asesor || deIA.asesor || deReglas.despedida || deIA.despedida) {
       const r = deReglas.asesor || deIA.asesor
@@ -790,10 +804,10 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
         } else {
           const corrido = tarde ? Math.min(aMinutos(propuesta.hora) + 180, 23 * 60) : temprano ? Math.max(aMinutos(propuesta.hora) - 180, 0) : null;
           const hora = corrido == null ? propuesta.hora : `${String(Math.floor(corrido / 60)).padStart(2, '0')}:${String(corrido % 60).padStart(2, '0')}`;
-          let turno = rechazadas.length < 3 && turnoParaOfrecer({ desde: propuesta.fecha, hora, excluir: rechazadas });
+          let turno = rechazadas.length < 3 && turnoParaOfrecer({ franja: s.franja, desde: propuesta.fecha, hora, excluir: rechazadas });
           // "Más tarde" tiene que ser de verdad más tarde: si ese día no hay 2 horas después, al día siguiente.
           if (turno && tarde && turno.fecha === propuesta.fecha && aMinutos(turno.hora) - aMinutos(propuesta.hora) < 120) {
-            turno = turnoParaOfrecer({ desde: sumarDias(propuesta.fecha, 1), hora, excluir: rechazadas });
+            turno = turnoParaOfrecer({ franja: s.franja, desde: sumarDias(propuesta.fecha, 1), hora, excluir: rechazadas });
           }
           r = turno
             ? esperar({ ...s, rechazadas, propuesta: turno, preguntando: 'propuesta' }, [`Entonces te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`])
@@ -856,4 +870,4 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
   return { responder };
 }
 
-module.exports = { crearConversacionLibre, preguntaFrecuente, extraerConReglas, porPartes, fechaEscrita, horaEscrita, limpiarIA, partir, horarioCitas };
+module.exports = { franjaEscrita, crearConversacionLibre, preguntaFrecuente, extraerConReglas, porPartes, fechaEscrita, horaEscrita, limpiarIA, partir, horarioCitas };

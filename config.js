@@ -33,6 +33,9 @@ module.exports = {
   // Máximo de citas por día, en cualquier turno del horario (sin dividir mañana y tarde).
   citasPorDia: 4,
 
+  // Qué significa "en la mañana" y "en la tarde" cuando el cliente no dice una hora exacta.
+  franjas: { manana: { desde: '08:30', hasta: '11:00' }, tarde: { desde: '13:00', hasta: '15:00' } },
+
   // Límites para lo que agenda el bot (las citas que pones tú a mano no los usan).
   diasAdelante: 14, // hasta cuántos días en el futuro se puede agendar
   anticipacionMinutos: 120, // no ofrecer horas que empiezan en menos de 2 horas
