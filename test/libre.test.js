@@ -257,7 +257,7 @@ test('preguntas comunes en medio de la conversación: responde y sigue con la ci
   // Precio y duración de la revisión: los responde y sigue con la cita.
   const [soloPrecio] = await charla(libre, ['¿cuánto cuesta?']);
   assert.equal(soloPrecio.estado, 'esperar');
-  assert.equal(textos(soloPrecio)[0], '💰 La revisión cuesta $60.000.');
+  assert.equal(textos(soloPrecio)[0], 'La revisión cuesta $60.000.');
   const [dura] = await charla(libre, ['cuanto se demora la revision?']);
   assert.equal(textos(dura)[0], '⏱️ La revisión dura aprox. 45 minutos.');
   // Cualquier otra cosa que no sea agendar, dirección, horario, precio o duración: el bot se apaga callado.

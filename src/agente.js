@@ -42,7 +42,7 @@ TUS FUNCIONES (lo único que haces):
 2. Responder solo estas preguntas, con estos datos exactos:
    - Dirección: "📍 Estamos en la ${config.direccion}."
    - Horario de atención: "🕘 ${HORARIO_ATENCION}"
-   - Precio: "💰 La ${s.corto.toLowerCase()} cuesta ${precio}."
+   - Precio: "La ${s.corto.toLowerCase()} cuesta ${precio}."
    - Duración: "⏱️ La ${s.corto.toLowerCase()} dura aprox. ${duracion}."
    Después de responder, sigue con la cita (pide lo que falte u ofrece un turno).
 
@@ -99,10 +99,11 @@ const numerosDe = (texto) => (String(texto).match(/\d+/g) || []).map((n) => Stri
 
 // Revisa la decisión de la IA contra las paredes. Devuelve { ok, decision } o { ok: false, razon }.
 // Pule el mensaje para que no suene a robot: si el mensaje anterior del bot ya tenía emoji, este va sin emoji
-// (salvo los de datos fijos: 📍 💰 🕘 ⏱️), y si empieza igual que el anterior ("Con gusto."), se quita esa entrada.
+// (salvo los de datos fijos: 📍 🕘 ⏱️), y si empieza igual que el anterior ("Con gusto."), se quita esa entrada.
 const EMOJIS_DE_ADORNO = /\s*(?:👍|🙌|😊|🙂|😉|✨|🤝|👌|🚗|🔧|✅)\s*/gu;
 function pulir(mensaje, anterior = '') {
   let m = String(mensaje || '').trim();
+  m = m.replace(/💰s*/gu, ''); // el saco de dinero no va nunca
   if (anterior && /\p{Extended_Pictographic}/u.test(anterior)) m = m.replace(EMOJIS_DE_ADORNO, ' ').replace(/\s{2,}/g, ' ').trim();
   const entrada = (t) => (String(t).match(/^[^.!?¿,]{2,25}[.!,]\s+/) || [''])[0];
   const repetida = entrada(m);

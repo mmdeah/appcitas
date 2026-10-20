@@ -262,7 +262,7 @@ function preguntaFrecuente(texto, servicio) {
   const nombre = s.corto.toLowerCase();
   if (!otroServicio && /\b(cuanto (vale|cuesta|es|sale|cobran)|precio|valor|costo)\b/.test(t)) {
     const precio = String(s.precio).replace(/^Precio:\s*/i, '');
-    respuestas.push(/^desde/i.test(precio) ? `💰 La ${nombre} cuesta ${precio.charAt(0).toLowerCase()}${precio.slice(1)}.` : `💰 La ${nombre} cuesta ${precio}.`);
+    respuestas.push(/^desde/i.test(precio) ? `La ${nombre} cuesta ${precio.charAt(0).toLowerCase()}${precio.slice(1)}.` : `La ${nombre} cuesta ${precio}.`);
   }
   if (!otroServicio && /\b(cuanto (dura|demora|se demora|tarda|se tarda)|duracion|cuanto tiempo)\b/.test(t)) {
     const min = s.duracionMinutos;

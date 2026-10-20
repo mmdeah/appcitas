@@ -74,7 +74,7 @@ test('paredes: solo turnos libres, un solo turno, sin rangos, sin tono prohibido
   assert.match(verificar({ accion: 'agendar', turno: { fecha: '2026-10-20', hora: '15:30' }, datos: { nombre: 'Omar' } }, base).razon, /incompletos/);
   assert.match(verificar({ accion: 'inventar' }, base).razon, /desconocida/);
   // Las frases fijas del taller (horario, dirección, precio) sí se pueden decir.
-  assert.equal(verificar({ accion: 'responder', mensaje: '🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m. 💰 La revisión cuesta $60.000.', datos: {} }, base).ok, true);
+  assert.equal(verificar({ accion: 'responder', mensaje: '🕘 Atendemos de lunes a sábado, de 8 a. m. a 5 p. m. La revisión cuesta $60.000.', datos: {} }, base).ok, true);
 });
 
 test('caso real Omar: pico y placa el martes → la IA ofrece otro día y la app lo deja pasar; luego agenda', async () => {
