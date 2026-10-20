@@ -327,7 +327,7 @@ function porPartes(texto) {
       }
       continue;
     }
-    const pareceFrase = /\b(tarde|manana|noche|dia|hora|semana|revision|sincronizacion|cita|agendar|quiero|puedo|necesito|gracias|hola|buenas|cuanto|precio|donde)\b/.test(v);
+    const pareceFrase = /\b(tarde|manana|noche|dia|hora|semana|revision|sincronizacion|cita|agendar|quiero|quisiera|puedo|necesito|gracias|hola|buenas|cuanto|precio|donde|interesa|interesado|interesada|info|informacion|como hago|me gustaria)\b/.test(v);
     if (!placa && !r.nombre && !pareceFrase && /^[a-z ]+$/.test(v) && v.split(' ').length <= 4 && !NO_ES_NOMBRE.has(v)) {
       const n = limpiarNombre(valor);
       if (n) r.nombre = n;
@@ -356,7 +356,7 @@ function extraerConReglas(textoOriginal, s, momento) {
   const hora = horaEscrita(t, s.preguntando === 'hora' || s.preguntando === 'propuesta');
   if (hora) r.hora = hora;
 
-  if (/^(no|cambia|cambiar|mejor|otro|otra)\b/.test(t) || /\bno me (sirve|queda|puedo)\b/.test(t)) {
+  if (/^(no|cambia|cambiar|mejor|otro|otra)\b/.test(t) || /\bno me (sirve|queda|puedo)\b/.test(t) || /\bmas (tarde|tardecito|temprano)\b/.test(t)) {
     r.confirma = false;
   } else if (/^(si|sii|siii|dale|listo|ok|okey|confirmo|confirmado|claro|de una|perfecto|correcto|esta bien|asi esta bien|si senor|si senora|me sirve|me queda bien|de acuerdo|vale|bueno|agendame|agendalo|hagale)\b/.test(t)) {
     r.confirma = true;
@@ -680,7 +680,9 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
           } else if (!sig.preguntando) {
             sig.preguntando = 'datos';
           }
-          r = esperar(sig, [dec.mensaje]);
+          // Que no suene a robot: sin el mismo emoji ni la misma entrada ("Con gusto.") que el mensaje anterior.
+          const anterior = [...historial].reverse().find((m) => m.rol === 'taller');
+          r = esperar(sig, [require('./agente').pulir(dec.mensaje, anterior ? anterior.texto : '')]);
         }
         r.data.decidio = 'ia';
         const final = r.estado === 'asesor' ? SIN_RESPUESTA : textoDe(r);
@@ -777,14 +779,30 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
       } else if (VARIOS_VEHICULOS.test(t)) {
         r = asesor('', 'varios_vehiculos');
       } else if (rechazo) {
-        // No le sirvió: se ofrece el siguiente turno. Después de 3 rechazos, lo atiende un asesor.
+        // No le sirvió. "Más tarde" / "más temprano": unas horas después o antes (no media hora).
+        // Un "no" solo, sin pista: no se adivina, se le pregunta qué día y hora le quedan mejor.
+        // Después de 3 rechazos, lo atiende un asesor.
         const rechazadas = [...(s.rechazadas || []), `${propuesta.fecha} ${propuesta.hora}`];
-        const turno = rechazadas.length < 3 && turnoParaOfrecer({ desde: propuesta.fecha, hora: propuesta.hora, excluir: rechazadas });
-        r = turno
-          ? esperar({ ...s, rechazadas, propuesta: turno, preguntando: 'propuesta' }, [`Entonces te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`])
-          : asesor('', 'sin_acuerdo');
+        const tarde = /\bmas tarde\b|\bmas tardecito\b/.test(t);
+        const temprano = /\bmas temprano\b/.test(t);
+        if (!tarde && !temprano && /^(no|no gracias|no me sirve|no puedo|nop|nel)[.! ]*$/.test(t)) {
+          r = esperar({ ...s, rechazadas, propuesta: null, preguntando: 'fecha' }, ['Entendido. ¿Qué día y hora te quedan mejor?']);
+        } else {
+          const corrido = tarde ? Math.min(aMinutos(propuesta.hora) + 180, 23 * 60) : temprano ? Math.max(aMinutos(propuesta.hora) - 180, 0) : null;
+          const hora = corrido == null ? propuesta.hora : `${String(Math.floor(corrido / 60)).padStart(2, '0')}:${String(corrido % 60).padStart(2, '0')}`;
+          let turno = rechazadas.length < 3 && turnoParaOfrecer({ desde: propuesta.fecha, hora, excluir: rechazadas });
+          // "Más tarde" tiene que ser de verdad más tarde: si ese día no hay 2 horas después, al día siguiente.
+          if (turno && tarde && turno.fecha === propuesta.fecha && aMinutos(turno.hora) - aMinutos(propuesta.hora) < 120) {
+            turno = turnoParaOfrecer({ desde: sumarDias(propuesta.fecha, 1), hora, excluir: rechazadas });
+          }
+          r = turno
+            ? esperar({ ...s, rechazadas, propuesta: turno, preguntando: 'propuesta' }, [`Entonces te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`])
+            : asesor('', 'sin_acuerdo');
+        }
       } else {
-        r = decidir(s, cambio || Boolean(respuesta), { conPregunta: Boolean(respuesta) && !cambio });
+        // "Me interesa", "quiero agendar", "info"… sin datos: no se corta, se le piden los datos (siempre hacia agendar).
+        const interes = !cambio && /\b(me interesa|interesad[oa]|quiero|quisiera|informacion|info|agendar|agendo|separar|cupo|como hago|como es)\b/.test(t);
+        r = decidir(s, cambio || Boolean(respuesta) || interes, { conPregunta: Boolean(respuesta) && !cambio });
       }
       if (respuesta && r.estado === 'esperar') {
         const antes = [r.acuse, ...r.handlers.map((h) => h.params.value)].filter(Boolean);

@@ -416,9 +416,24 @@ test('sugiere la hora más temprana; "sí" la acepta y "no" ofrece la siguiente'
   assert.equal(si.cita.hora, '08:30');
 
   const otra = crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
-  const [, no, listo] = await charla(otra, ['Ana Ruiz, Kia Rio 2020, QWE123, el jueves', 'no me sirve', 'listo']);
-  assert.match(textos(no)[0], /^Entonces te puedo ofrecer el jueves 8 a las 9:00 a\. m\. ¿Te sirve\?$/);
-  assert.equal(listo.cita.hora, '09:00');
+  // Un "no" solo: no adivina otro turno, le pregunta qué le sirve. Y con su respuesta, agenda.
+  const [, no, listo] = await charla(otra, ['Ana Ruiz, Kia Rio 2020, QWE123, el jueves', 'no me sirve', 'el viernes a las 11']);
+  assert.equal(textos(no)[0], 'Entendido. ¿Qué día y hora te quedan mejor?');
+  assert.equal(listo.estado, 'listo');
+  assert.deepEqual([listo.cita.fecha, listo.cita.hora], ['2026-10-09', '11:00']);
+});
+
+test('caso real: "me interesa" no apaga el bot (pide los datos) y "más tarde" es unas horas después', async () => {
+  const libre = crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
+  const [interesa] = await charla(libre, ['me interesa']);
+  assert.equal(interesa.estado, 'esperar');
+  assert.match(textos(interesa).join(' '), /Para agendarte me falta: nombre, vehículo, placa, día y hora/);
+
+  const otra = crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj });
+  const [primero, tarde] = await charla(otra, ['Luis Ruiz, Nissan Versa 2019, XYZ789, el jueves', 'más tarde']);
+  assert.equal(primero.siguiente.propuesta.hora, '08:30');
+  // No 9:00 (media hora): al menos 2 horas después.
+  assert.ok(Number(tarde.siguiente.propuesta.hora.slice(0, 2)) >= 10, tarde.siguiente.propuesta.hora);
 });
 
 

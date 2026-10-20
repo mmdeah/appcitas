@@ -149,3 +149,17 @@ test('el agente queda encendido para todos si no se configura nada; AGENTE=no lo
     if (antes !== undefined) process.env.AGENTE = antes;
   }
 });
+
+test('naturalidad: no repite la misma entrada ni el emoji del mensaje anterior; "más tarde" no es media hora', () => {
+  const { pulir } = require('../src/agente');
+  assert.equal(pulir('Con gusto. ¿Te sirve el jueves 22 a las 1:00 p. m.? 👍', 'Con gusto. ¿Te sirve el jueves 22 a las 12:30 p. m.? 👍'), '¿Te sirve el jueves 22 a las 1:00 p. m.?');
+  assert.equal(pulir('Perfecto. ¿Te sirve el jueves 22 a las 3:00 p. m.?', 'Gracias por los datos.'), 'Perfecto. ¿Te sirve el jueves 22 a las 3:00 p. m.?');
+  // Los emojis de datos fijos se quedan.
+  assert.match(pulir('📍 Estamos en la Av. 6 Norte #18-22. ¿Te sirve mañana?', 'Hola 🙌'), /^📍/);
+
+  const libres = new Set(['2026-10-22 13:00', '2026-10-22 15:00']);
+  const base = { libres, datos: {}, texto: 'más tarde', servicio: 'REVISION', propuesta: { fecha: '2026-10-22', hora: '12:30' } };
+  const ofrecer = (hora, mensaje) => verificar({ accion: 'ofrecer', turno: { fecha: '2026-10-22', hora }, mensaje, datos: {} }, base);
+  assert.match(ofrecer('13:00', '¿Te sirve el jueves 22 a la 1:00 p. m.?').razon, /más tarde/);
+  assert.equal(ofrecer('15:00', '¿Te sirve el jueves 22 a las 3:00 p. m.?').ok, true);
+});

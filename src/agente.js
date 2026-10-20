@@ -47,9 +47,14 @@ TUS FUNCIONES (lo único que haces):
    Después de responder, sigue con la cita (pide lo que falte u ofrece un turno).
 
 TUS LÍMITES (paredes que nunca cruzas):
-1. Si el mensaje no es para agendar esta cita ni una de esas 4 preguntas, la acción es "cortar" (no respondes nada; lo atiende una persona). También "cortar" si: se despide o dice que confirmará después, pide hablar con una persona, pregunta por otros servicios, repuestos o cotizaciones, quiere agendar varios vehículos, está molesto o se queja, o la conversación no avanza. Lee TODA la conversación antes de decidir.
+1. Siempre lleva la conversación hacia agendar la cita. Si el cliente muestra interés pero no da datos ("me interesa", "quiero", "info", "sí", "cómo hago", "hola" justo después de que el taller le pidió los datos), NO cortes: pídele con amabilidad los datos que faltan.
+   Pero si el cliente dice que NO quiere la cita ("no gracias", "ya no", "no me interesa", "después miro"), es no: la acción es "cortar" y no insistes.
+   Si el mensaje no es para agendar esta cita ni una de esas 4 preguntas, la acción es "cortar" (no respondes nada; lo atiende una persona). También "cortar" si: se despide o dice que confirmará después, pide hablar con una persona, pregunta por otros servicios, repuestos o cotizaciones, quiere agendar varios vehículos, o está molesto o se queja. Lee TODA la conversación antes de decidir.
 2. Turnos: solo puedes ofrecer o agendar turnos que estén en TURNOS LIBRES, copiando la fecha y la hora exactas. Ofrece UNO solo a la vez. Nunca digas cuántos turnos hay, nunca des listas ni rangos de horas ("de 8:30 a 3:30", "hasta las…") ni menciones días u horas distintos del turno que ofreces o de lo que el cliente pidió. La lista de turnos es interna: el cliente nunca la ve.
 3. Cómo elegir el turno: si pidió día y hora y está libre, ese. Si la hora está ocupada, la más cercana ese mismo día. Si no dijo hora, la más temprana del día. Si no dijo día, el más próximo. Si rechaza el DÍA (pico y placa, trabajo, "ese día no puedo"), ofrece otro día y no vuelvas a ofrecer ese día. Si rechaza solo la HORA, otra hora. No repitas un turno que ya rechazó (está en TURNOS RECHAZADOS).
+   - Si al turno ofrecido solo dice "no" (sin decir por qué ni qué prefiere), no adivines otro turno: pregúntale qué día y hora le quedan mejor (acción "preguntar", sin turno).
+   - "Más tarde" son varias horas después, no media hora: ofrece un turno al menos 2 a 3 horas después del que ofreciste (o al día siguiente si ese día no hay). "Más temprano", al revés.
+   - "En la tarde" es desde las 2:00 p. m. (si no hay, lo más cercano después del mediodía). "En la mañana" o "temprano" es antes de las 10:00 a. m.
 4. "agendar" solo cuando tengas nombre, vehículo y placa, y el cliente aceptó el turno ofrecido ("sí", "listo", "dale", "me sirve"…) o pidió exactamente un turno que está libre.
 5. Datos: no inventes nada. Placa colombiana: 3 letras + 3 números (carros) o 3 letras + 2 números + 1 letra (motos). Si escribió la letra O en vez de cero, corrígela.
 6. Forma de hablar (muy respetuosa):
@@ -59,7 +64,8 @@ TUS LÍMITES (paredes que nunca cruzas):
    - No presiones: nunca "apúrate", "se acaban los cupos", "últimos cupos", "última oportunidad".
    - No discutas ni corrijas al cliente en tono de regaño. Si está molesto, la acción es "cortar".
    - Saluda solo una vez en la conversación y no repitas el nombre del cliente en cada mensaje. No empieces el mensaje con su nombre cuando no hay disponibilidad.
-   - Mensajes cortos (máximo 3 frases). Como mucho 1 emoji, solo amables (🙌 👍 📍). Sin mayúsculas sostenidas ni signos repetidos ("!!", "??").
+   - Mensajes cortos (máximo 3 frases). Sin mayúsculas sostenidas ni signos repetidos ("!!", "??").
+   - Varía la forma de escribir, como lo haría una persona: no empieces dos mensajes seguidos igual (por ejemplo "Con gusto."), no repitas la misma estructura en cada mensaje. Emojis casi nunca: como mucho uno de vez en cuando (no en cada mensaje, nunca el mismo en mensajes seguidos), y solo amables (🙌 👍 📍).
    - Nunca: "Uy", "qué pena", "lamentablemente", "disculpa", "lo siento", ni caritas tristes.
    - No prometas nada, no des precios de otros servicios, no inventes promociones.
 7. Cuando la acción es "agendar", deja "mensaje" vacío: el sistema le manda la confirmación con todos los datos.
@@ -92,7 +98,22 @@ function turnosLibres(agenda, hoy, dias) {
 const numerosDe = (texto) => (String(texto).match(/\d+/g) || []).map((n) => String(Number(n)));
 
 // Revisa la decisión de la IA contra las paredes. Devuelve { ok, decision } o { ok: false, razon }.
-function verificar(decision, { libres, datos, texto, servicio, pedido = {} }) {
+// Pule el mensaje para que no suene a robot: si el mensaje anterior del bot ya tenía emoji, este va sin emoji
+// (salvo los de datos fijos: 📍 💰 🕘 ⏱️), y si empieza igual que el anterior ("Con gusto."), se quita esa entrada.
+const EMOJIS_DE_ADORNO = /\s*(?:👍|🙌|😊|🙂|😉|✨|🤝|👌|🚗|🔧|✅)\s*/gu;
+function pulir(mensaje, anterior = '') {
+  let m = String(mensaje || '').trim();
+  if (anterior && /\p{Extended_Pictographic}/u.test(anterior)) m = m.replace(EMOJIS_DE_ADORNO, ' ').replace(/\s{2,}/g, ' ').trim();
+  const entrada = (t) => (String(t).match(/^[^.!?¿,]{2,25}[.!,]\s+/) || [''])[0];
+  const repetida = entrada(m);
+  if (repetida && repetida.trim().toLowerCase() === entrada(anterior).trim().toLowerCase()) {
+    const resto = m.slice(repetida.length).trim();
+    if (resto) m = resto.charAt(0).toUpperCase() + resto.slice(1);
+  }
+  return m;
+}
+
+function verificar(decision, { libres, datos, texto, servicio, pedido = {}, propuesta = null }) {
   if (!decision || typeof decision !== 'object') return { ok: false, razon: 'sin respuesta' };
   const accion = String(decision.accion || '').toLowerCase();
   if (!ACCIONES.includes(accion)) return { ok: false, razon: `acción desconocida: ${decision.accion}` };
@@ -115,6 +136,10 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {} }) {
     if (!libres.has(`${turno.fecha} ${turno.hora}`)) return { ok: false, razon: `turno no libre: ${turno.fecha} ${turno.hora}` };
   }
   if ((accion === 'ofrecer' || accion === 'agendar') && !turno) return { ok: false, razon: `${accion} sin turno` };
+  // "Más tarde" no es media hora después: el turno nuevo tiene que estar al menos 2 horas después del ofrecido.
+  if (accion === 'ofrecer' && turno && propuesta && /m[aá]s tarde/i.test(texto) && turno.fecha === propuesta.fecha && aMinutos(turno.hora) - aMinutos(propuesta.hora) < 120) {
+    return { ok: false, razon: '"más tarde" con menos de 2 horas de diferencia' };
+  }
   const todos = { ...datos, ...nuevos };
   if (accion === 'agendar' && !(todos.nombre && todos.vehiculo && todos.placa)) return { ok: false, razon: 'agendar con datos incompletos' };
 
@@ -200,7 +225,7 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
       avisar({ s, texto, aprobada: false, razon: `la IA no respondió (${String(err.message).slice(0, 80)})` });
       return null;
     }
-    const v = verificar(crudo, { libres, datos: s.datos, texto, servicio: s.servicio, pedido });
+    const v = verificar(crudo, { libres, datos: s.datos, texto, servicio: s.servicio, pedido, propuesta: s.propuesta || null });
     if (!v.ok) {
       console.warn('Agente: decisión rechazada, sigo con reglas', { lead: s.lead, razon: v.razon, accion: crudo && crudo.accion });
       avisar({ s, texto, crudo, aprobada: false, razon: v.razon });
@@ -214,4 +239,4 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
   return { paraQuien, decidir };
 }
 
-module.exports = { crearAgente, verificar, placaValida, instrucciones, turnosLibres };
+module.exports = { crearAgente, verificar, pulir, placaValida, instrucciones, turnosLibres };
