@@ -406,8 +406,9 @@ function limpiarIA(ia, momento) {
     r.vehiculo = ia.vehiculo.trim().slice(0, 120);
   }
   if (typeof ia.placa === 'string') {
-    const p = ia.placa.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (/^[A-Z]{3}\d{2}[A-Z0-9]$/.test(p)) r.placa = p;
+    // "NCY O66" (letra O en vez de cero) también es una placa válida: NCY066.
+    const p = require('./agente').placaValida(ia.placa);
+    if (p) r.placa = p;
   }
   if (esFecha(ia.fecha) && diasEntre(momento.fecha, ia.fecha) >= 0 && diasEntre(momento.fecha, ia.fecha) <= 90) r.fecha = ia.fecha;
   if (esHora(ia.hora)) r.hora = ia.hora;
@@ -418,7 +419,7 @@ function limpiarIA(ia, momento) {
   return r;
 }
 
-function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () => new Date() } = {}) {
+function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = null, reloj = () => new Date() } = {}) {
   const resultado = (estado, siguiente, textos, extra = {}) => {
     const mensajes = textos.flatMap(partir).map((value) => ({ handler: 'show', params: { type: 'text', value } }));
     return {
@@ -654,6 +655,43 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, reloj = () 
       memoria.agregar(s.lead, 'cliente', texto);
       memoria.agregar(s.lead, 'taller', respuesta);
     };
+
+    // Agente de IA (si está encendido para este cliente): decide qué hacer y qué decir dentro de sus funciones
+    // y límites; la app verifica la decisión (ver agente.js). Si no pasa la verificación, siguen las reglas de siempre.
+    if (agente && texto && agente.paraQuien(s.datos.telefono || contacto.telefono)) {
+      const pedido = extraerConReglas(texto, s, momento);
+      const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora } });
+      if (dec) {
+        Object.assign(s.datos, dec.datos);
+        let r;
+        if (dec.accion === 'cortar') {
+          r = asesor('', `ia: ${dec.motivo || 'fuera de sus funciones'}`.slice(0, 70));
+        } else if (dec.accion === 'agendar') {
+          r = guardar({ ...s, datos: { ...s.datos, fecha: dec.turno.fecha, hora: dec.turno.hora }, preguntando: null, propuesta: null, sinAvance: 0 });
+        } else {
+          const sig = { ...s, datos: { ...s.datos }, confirmando: false, sinAvance: 0 };
+          if (dec.turno) {
+            // Si había otro turno ofrecido y ahora ofrece uno distinto, el anterior quedó rechazado.
+            if (s.propuesta && `${s.propuesta.fecha} ${s.propuesta.hora}` !== `${dec.turno.fecha} ${dec.turno.hora}`) {
+              sig.rechazadas = [...(s.rechazadas || []), `${s.propuesta.fecha} ${s.propuesta.hora}`].slice(-10);
+            }
+            sig.propuesta = dec.turno;
+            sig.preguntando = 'propuesta';
+          } else if (!sig.preguntando) {
+            sig.preguntando = 'datos';
+          }
+          r = esperar(sig, [dec.mensaje]);
+        }
+        r.data.decidio = 'ia';
+        const final = r.estado === 'asesor' ? SIN_RESPUESTA : textoDe(r);
+        guardarEnMemoria(final);
+        if (r.siguiente) {
+          r.siguiente.historial = [...historial, { rol: 'cliente', texto }, { rol: 'taller', texto: final }].slice(-20);
+          r.siguiente.ultimaPregunta = final.slice(0, 300);
+        }
+        return conDatosGuardados(r);
+      }
+    }
 
     let deIA = {};
     if (ia && ia.activa && texto) {

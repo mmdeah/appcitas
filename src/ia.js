@@ -116,7 +116,26 @@ function crearIA({ clave = process.env.OPENROUTER_API_KEY, modelo = process.env.
     return texto.trim().replace(/^["'«]|["'»]$/g, '').trim() || null;
   }
 
-  return { activa, extraer, redactar };
+  // Pregunta general que devuelve un objeto JSON (la usa el agente que decide la conversación).
+  async function json({ sistema, usuario }) {
+    if (!activa) return null;
+    const cuerpo = {
+      model: modelo,
+      ...temperatura(0),
+      messages: [
+        { role: 'system', content: sistema },
+        { role: 'user', content: usuario },
+      ],
+    };
+    let r = await pedir({ ...cuerpo, response_format: { type: 'json_object' } });
+    if (r.status === 400) r = await pedir(cuerpo); // algunos modelos no aceptan response_format
+    if (!r.ok) throw new Error(`OpenRouter respondió ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const contenido = (await r.json())?.choices?.[0]?.message?.content || '';
+    const objeto = contenido.match(/\{[\s\S]*\}/);
+    return objeto ? JSON.parse(objeto[0]) : null;
+  }
+
+  return { activa, extraer, redactar, json };
 }
 
 module.exports = { crearIA, instrucciones };
