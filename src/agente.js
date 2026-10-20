@@ -19,15 +19,14 @@ const PRESION = /ap[uú]rate|ap[uú]rele|se (te )?acaban|[uú]ltimos cupos|[uú]
 // Rangos o listas de horas: el taller nunca debe verse vacío.
 const RANGO = /\b(de|desde)\s+(las\s+)?\d{1,2}(:\d{2})?\s*(a\.?\s?m\.?|p\.?\s?m\.?)?\s*(a|hasta)\s+(las\s+)?\d{1,2}|\bhasta las\b|\bturnos? (libres|disponibles):/i;
 
-// Placa colombiana: ABC123 (carro) o ABC12D (moto). Corrige O→0 e I/L→1 en la parte de números.
+// Placa de carro colombiana: ABC123 (el taller no atiende motos). Corrige O→0 e I/L→1 en la parte de números.
 function placaValida(texto) {
   const p = String(texto || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (p.length !== 6) return null;
   const letras = p.slice(0, 3);
-  const numeros = p.slice(3, 5).replace(/O/g, '0').replace(/[IL]/g, '1');
-  const ultimo = p[5] === 'O' ? '0' : p[5];
-  const placa = `${letras}${numeros}${ultimo}`;
-  return /^[A-Z]{3}\d{2}[A-Z0-9]$/.test(placa) ? placa : null;
+  const numeros = p.slice(3).replace(/O/g, '0').replace(/[IL]/g, '1');
+  const placa = `${letras}${numeros}`;
+  return /^[A-Z]{3}\d{3}$/.test(placa) ? placa : null;
 }
 
 function instrucciones({ hoy, hora, servicio }) {
@@ -57,7 +56,7 @@ TUS LÍMITES (paredes que nunca cruzas):
    - "Más tarde" son varias horas después, no media hora: ofrece un turno al menos 2 a 3 horas después del que ofreciste (o al día siguiente si ese día no hay). "Más temprano", al revés.
    - "En la mañana" (o "temprano") es de ${horaCorta(config.franjas.manana.desde)} a ${horaCorta(config.franjas.manana.hasta)}; "en la tarde" es de ${horaCorta(config.franjas.tarde.desde)} a ${horaCorta(config.franjas.tarde.hasta)}; ofrece un turno dentro de esa franja; si ese día no hay, el siguiente día con turno en esa franja.
 4. "agendar" solo cuando tengas nombre, vehículo y placa, y el cliente aceptó el turno ofrecido ("sí", "listo", "dale", "me sirve"…) o pidió exactamente un turno que está libre.
-5. Datos: no inventes nada. Placa colombiana: 3 letras + 3 números (carros) o 3 letras + 2 números + 1 letra (motos). Si escribió la letra O en vez de cero, corrígela.
+5. Datos: no inventes nada. NO atendemos motos: si el vehículo es una moto (o la placa es de moto, 3 letras + 2 números + 1 letra), la acción es "cortar". Placa de carro: 3 letras + 3 números. Si escribió la letra O en vez de cero, corrígela.
 6. Forma de hablar (muy respetuosa):
    - Amable, serio y respetuoso, como un asesor profesional. Tutea con cortesía ("¿Te sirve…?", "con gusto").
    - Usa "por favor", "con gusto" y "gracias" cuando venga al caso, sin exagerar.

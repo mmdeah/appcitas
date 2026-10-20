@@ -122,7 +122,7 @@ test('entiende días y horas escritos a mano', () => {
 test('separa placa, vehículo y nombre', () => {
   assert.deepEqual(separarPlaca('Mazda 3 2018, abc-123'), { placa: 'ABC123', resto: 'Mazda 3 2018' });
   assert.deepEqual(separarPlaca('placa XYZ 789 chevrolet spark'), { placa: 'XYZ789', resto: 'chevrolet spark' });
-  assert.equal(separarPlaca('moto AKT abc12d').placa, 'ABC12D');
+  assert.equal(separarPlaca('moto AKT abc12d').placa, null); // no atendemos motos
   assert.equal(separarPlaca('Chevrolet Spark').placa, null);
   assert.equal(limpiarNombre('Hola, me llamo Ana María'), 'Ana María');
   assert.equal(limpiarNombre('Soy Pedro.'), 'Pedro');

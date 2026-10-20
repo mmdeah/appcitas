@@ -350,8 +350,13 @@ test('simulación de casos raros: fechas con mes, placa correcta, otros servicio
   const [pasada] = await una(['Ana Ruiz, Renault Logan 2017, LKJ321, el 2 de octubre a las 10']);
   assert.match(textos(pasada)[0], /ya pasó/);
   // La placa es la que va después de "placa", no el modelo de la moto.
+  // No atendemos motos: el bot se calla y lo atiende un asesor.
   const [moto] = await una(['Carlos, moto AKT 125, placa ABC12D, el viernes a las 11']);
-  assert.equal(moto.siguiente.datos.placa, 'ABC12D');
+  assert.equal(moto.estado, 'asesor');
+  assert.equal(moto.data.motivo, 'moto');
+  // La placa que va después de "placa" manda sobre otras cosas parecidas.
+  const [carro] = await una(['Carlos Díaz, Mazda CX 300, placa ABC123, el viernes a las 11']);
+  assert.equal(carro.cita.placa, 'ABC123');
   // Otro servicio, repuestos o varios carros: asesor.
   assert.equal((await una(['cuánto vale el cambio de aceite?']))[0].data.motivo, 'otro_servicio');
   assert.equal((await una(['tienen pastillas de freno para un duster?']))[0].data.motivo, 'otro_servicio');
@@ -487,4 +492,12 @@ test('franjas: "en la tarde" es de 1:00 a 3:00 p. m. y "en la mañana" de 8:30 a
   assert.match(textos(tarde).join(' '), /jueves 8 a las 1:00 p\. m\./);
   assert.match(textos(no)[0], /¿Qué día y hora te quedan mejor\?/);
   assert.match(textos(manana).join(' '), /viernes 9 a las 8:30 a\. m\./);
+});
+
+test('no atendemos motos: por palabra o por placa de moto; una placa de carro con O al final sí se agenda', async () => {
+  const una = async (mensajes) => charla(crearConversacionLibre(crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30 }, reloj), { reloj }), mensajes);
+  assert.equal((await una(['tengo una moto, quiero la revisión el viernes']))[0].data.motivo, 'moto');
+  assert.equal((await una(['Pedro, placa ABC12D, el viernes a las 9']))[0].data.motivo, 'moto');
+  const [carro] = await una(['Pedro Gómez, Kia Rio 2020, placa ABC12O, el viernes a las 9']);
+  assert.notEqual(carro.data.motivo, 'moto');
 });

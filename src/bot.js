@@ -111,12 +111,12 @@ function elegirHora(mensaje, horas) {
   );
 }
 
-// Placas de Colombia: carro ABC123, moto ABC12D.
+// Placas de carro de Colombia: ABC123 (el taller no atiende motos).
 function separarPlaca(texto) {
-  // Si dice "placa ABC123", esa manda (en "moto AKT 125, placa ABC12D" la placa no es AKT 125).
+  // Si dice "placa ABC123", esa manda (en "Mazda CX 30, placa ABC123" la placa no es "CX 30").
   const m =
-    String(texto || '').match(/placa\s*(?:es|:)?\s*\b([A-Za-z]{3})[\s-]?(\d{3}|\d{2}[A-Za-z])\b/i) ||
-    String(texto || '').match(/\b([A-Za-z]{3})[\s-]?(\d{3}|\d{2}[A-Za-z])\b/);
+    String(texto || '').match(/placa\s*(?:es|:)?\s*\b([A-Za-z]{3})[\s-]?(\d{3})\b/i) ||
+    String(texto || '').match(/\b([A-Za-z]{3})[\s-]?(\d{3})\b/);
   if (!m) return { placa: null, resto: String(texto || '').trim() };
   const resto = String(texto)
     .replace(m[0], ' ')

@@ -57,7 +57,7 @@ function conIA(respuestas, { modo = 'si' } = {}) {
 test('placas: corrige la letra O por cero (caso real NCY O66) y rechaza lo que no es placa', () => {
   assert.equal(placaValida('NCY O66'), 'NCY066');
   assert.equal(placaValida('ncy-066'), 'NCY066');
-  assert.equal(placaValida('ABC12D'), 'ABC12D');
+  assert.equal(placaValida('ABC12D'), null); // placa de moto: no atendemos motos
   assert.equal(placaValida('GYN9823'), null);
   assert.equal(placaValida('hola'), null);
 });
@@ -188,3 +188,8 @@ test('caso real Francisco: cliente sin celular en Kommo → la IA lo pide una ve
   assert.equal(listo.estado, 'listo');
   assert.deepEqual([listo.cita.telefono, listo.cita.fecha, listo.cita.hora], ['573212857455', '2026-10-24', '11:00']);
 }));
+
+test('placa de carro con la letra O al final (ABC12O) es un carro, no una moto', () => {
+  assert.equal(placaValida('ABC12O'), 'ABC120');
+  assert.equal(placaValida('NCY O66'), 'NCY066');
+});

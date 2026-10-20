@@ -73,7 +73,7 @@ const TONO_PROHIBIDO = /qu[eé] pena|lamentablemente|desafortunadamente|disculp|
 // ¿La versión redactada conserva todos los datos del borrador? (horas, precios, placas, números de día)
 function conservaDatos(base, nuevo) {
   if (!nuevo || [...nuevo].length > 500) return false;
-  const datos = base.match(/\d{1,2}:\d{2}|\$[\d.]+|\b[A-Z]{3}\d{2}[A-Z0-9]\b|\b\d{1,2}\b/g) || [];
+  const datos = base.match(/\d{1,2}:\d{2}|\$[\d.]+|\b[A-Z]{3}\d{3}\b|\b\d{1,2}\b/g) || [];
   const limpio = nuevo.replace(/\s+/g, ' ');
   // Días de la semana y meses también deben quedar iguales.
   const sinTilde = (t) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -241,6 +241,9 @@ const ES_VEHICULO = (t) => MARCAS.test(t) || /\b(19|20)\d{2}\b/.test(t) || /\b(c
 
 // Servicios o productos que no son la revisión ni la sincronización: los atiende un asesor.
 const OTRO_SERVICIO = /\b(aceite|latoneria|pintura|frenos?|pastillas?|llantas?|alineacion|balanceo|lavado|bateria|embrague|suspension|aire acondicionado|scanner|escaner|diagnostico|repuestos?|cotizacion|cotizar|mantenimiento|correa|clutch|radiador|amortiguadores?)\b/;
+// Motos: el taller no las atiende (lo responde un asesor).
+// (Una O, I o L al final no cuenta: es un cero o un uno mal escrito en una placa de carro, "ABC12O".)
+const MOTO = /\b(moto|motos|motocicleta|motico|scooter)\b|\b[a-z]{3}\s?-?\d{2}[a-hj-km-np-z]\b/;
 // Más de un vehículo en la misma cita: mejor lo cuadra un asesor.
 const VARIOS_VEHICULOS = /\b(dos|2|tres|3|varios|varias) (carros|vehiculos|motos|camionetas|autos)\b/;
 
@@ -796,7 +799,10 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
       const respuesta = preguntaFrecuente(texto, s.servicio);
       const t = normalizar(texto);
       const traeCita = Boolean(nuevo.fecha || nuevo.hora || nuevo.placa);
-      if (OTRO_SERVICIO.test(t) && !traeCita) {
+      if (MOTO.test(t)) {
+        // No atendemos motos.
+        r = asesor('', 'moto');
+      } else if (OTRO_SERVICIO.test(t) && !traeCita) {
         // Otro servicio o un repuesto: lo responde un asesor.
         r = asesor('', 'otro_servicio');
       } else if (VARIOS_VEHICULOS.test(t)) {
