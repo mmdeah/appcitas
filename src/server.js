@@ -276,12 +276,13 @@ async function atender(req, res) {
   // ---------- Sección Bot ----------
   if (metodo === 'GET' && ruta === '/bot') {
     const hoy = db.prepare(`SELECT count(*) AS n, sum(aprobada = 0) AS frenadas FROM decisiones WHERE date(creado, '-5 hours') = ?`).get(ahora().fecha);
+    const fallas = db.prepare(`SELECT count(*) AS n FROM decisiones WHERE razon LIKE 'la IA no respondió%' AND creado >= datetime('now', '-1 day')`).get();
     return html(res, 200, vistasBot.botConfig({
       ajustes: ajustes.actuales(),
       estado: { iaActiva: ia.activa, modelo: process.env.OPENROUTER_MODEL, recordatorios: recordatorios.activo },
       instrucciones: instruccionesIA({ hoy: ahora().fecha, hora: ahora().hora, servicio: 'REVISION' }),
       aviso: url.searchParams.get('aviso'),
-      estadisticas: { hoy: hoy.n || 0, frenadasHoy: hoy.frenadas || 0 },
+      estadisticas: { hoy: hoy.n || 0, frenadasHoy: hoy.frenadas || 0, fallasIA: fallas.n || 0 },
     }));
   }
   if (metodo === 'POST' && ruta === '/bot/ajustes') {
@@ -292,7 +293,7 @@ async function atender(req, res) {
       estado: { iaActiva: ia.activa, modelo: process.env.OPENROUTER_MODEL, recordatorios: recordatorios.activo },
       instrucciones: instruccionesIA({ hoy: ahora().fecha, hora: ahora().hora, servicio: 'REVISION' }),
       errores: r.errores,
-      estadisticas: { hoy: 0, frenadasHoy: 0 },
+      estadisticas: { hoy: 0, frenadasHoy: 0, fallasIA: 0 },
     }));
   }
   if (metodo === 'GET' && ruta === '/bot/simulador') {

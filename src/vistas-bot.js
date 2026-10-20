@@ -92,18 +92,20 @@ function botConfig({ ajustes, estado, instrucciones, aviso, errores = [], estadi
   const numero = (id, etiqueta, valor, min, max, ayuda) =>
     `<div class="campo"><label for="${id}">${etiqueta}</label><input id="${id}" name="${id}" type="number" inputmode="numeric" min="${min}" max="${max}" value="${esc(valor)}" required>${ayuda ? `<small class="suave">${ayuda}</small>` : ''}</div>`;
   const encendido = a.agenteModo !== 'no';
-  const humor = !estado.iaActiva ? 'dormido' : encendido ? 'feliz' : 'dormido';
-  const globo = !estado.iaActiva ? 'Me falta la clave de OpenRouter para pensar…' : encendido ? '¡Hola! Estoy atendiendo a los clientes 🙌' : 'Estoy descansando: responden las reglas.';
+  const humor = !estado.iaActiva ? 'dormido' : !encendido ? 'dormido' : estadisticas.fallasIA >= 3 ? 'confundido' : 'feliz';
+  const humorFallando = estadisticas.fallasIA >= 3;
+  const globo = humorFallando && encendido ? 'Me está costando conectarme a la IA… revisa OpenRouter.' : !estado.iaActiva ? 'Me falta la clave de OpenRouter para pensar…' : encendido ? '¡Hola! Estoy atendiendo a los clientes 🙌' : 'Estoy descansando: responden las reglas.';
   return pagina(
     'Bot',
     `<header class="cabeza"><div><p class="eyebrow">Tu asistente de WhatsApp</p><h1>Bot del taller</h1></div></header>
 ${pestanas('config')}
 ${aviso ? `<p class="alerta bien">${esc(aviso)}</p>` : ''}
 ${errores.length ? `<div class="alerta mal">${errores.map((e) => `<p>${esc(e)}</p>`).join('')}</div>` : ''}
+${estadisticas.fallasIA >= 3 ? `<p class="alerta mal">⚠️ La IA no pudo responder ${estadisticas.fallasIA} veces en las últimas 24 horas: esos clientes quedaron sin respuesta. Revisa el saldo y la clave en openrouter.ai (o cambia temporalmente a "Bot de reglas").</p>` : ''}
 <section class="bot-hero tarjeta">
   ${mascota(humor, { tam: 150, globo })}
   <dl class="bot-estado">
-    <div><dt>Agente de IA</dt><dd>${encendido ? '<span class="chip bien">Encendido</span>' : '<span class="chip mal">Apagado</span>'}</dd></div>
+    <div><dt>Atiende</dt><dd>${encendido ? '<span class="chip bien">IA</span>' : '<span class="chip">Bot de reglas</span>'}</dd></div>
     <div><dt>Modelo</dt><dd>${esc(estado.modelo || 'sin configurar')}</dd></div>
     <div><dt>Recordatorios</dt><dd>${estado.recordatorios ? '<span class="chip bien">Encendidos</span>' : '<span class="chip">Apagados</span>'}</dd></div>
     <div><dt>Decisiones hoy</dt><dd>${estadisticas.hoy} <small class="suave">(${estadisticas.frenadasHoy} frenadas)</small></dd></div>
@@ -115,9 +117,9 @@ ${errores.length ? `<div class="alerta mal">${errores.map((e) => `<p>${esc(e)}</
   <p class="sub">Los cambios se aplican al instante, sin volver a publicar. Si cambias el horario, cambia también el texto del mensaje de Kommo que dice el horario.</p>
 
   <fieldset class="grupo">
-    <legend>Agente de IA</legend>
-    <label class="radio"><input type="radio" name="agenteModo" value="si"${encendido ? ' checked' : ''}> Encendido: la IA decide (dentro de sus reglas)</label>
-    <label class="radio"><input type="radio" name="agenteModo" value="no"${!encendido ? ' checked' : ''}> Apagado: responde solo el bot de reglas</label>
+    <legend>¿Quién atiende a los clientes?</legend>
+    <label class="radio"><input type="radio" name="agenteModo" value="si"${encendido ? ' checked' : ''}> <span><b>IA</b> (Tuerquita): entiende el contexto y decide dentro de sus reglas. Si no puede, se calla y el chat queda para ti.</span></label>
+    <label class="radio"><input type="radio" name="agenteModo" value="no"${!encendido ? ' checked' : ''}> <span><b>Bot de reglas</b>: respuestas fijas, más rígido pero sin IA (no gasta OpenRouter).</span></label>
   </fieldset>
 
   <fieldset class="grupo">
