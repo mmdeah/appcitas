@@ -12,6 +12,10 @@ const HORARIO_ATENCION = 'Atendemos de lunes a sábado, de 8 a. m. a 5 p. m.';
 
 // Frases y caritas que no van con el tono del taller.
 const TONO_PROHIBIDO = /qu[eé] pena|lamentablemente|desafortunadamente|disculp|lo siento|lo lamento|\buy\b|😕|😔|😢|😞|🙁|☹/i;
+// Trato de confianza, jerga o presión: no van con un asesor respetuoso.
+const CONFIANZAS = /\b(amigo|amiga|amig[ou]it[oa]|herman[oa]|hermanit[oa]|parcero|parcera|parce|mi rey|mi reina|mij[oa]|bro|veci|vecino|socio|papi|mami|cari[ñn]o)\b/i;
+const PRESION = /ap[uú]rate|ap[uú]rele|se (te )?acaban|[uú]ltimos cupos|[uú]ltima oportunidad|no te lo pierdas|corre(le)?\b/i;
+
 // Rangos o listas de horas: el taller nunca debe verse vacío.
 const RANGO = /\b(de|desde)\s+(las\s+)?\d{1,2}(:\d{2})?\s*(a\.?\s?m\.?|p\.?\s?m\.?)?\s*(a|hasta)\s+(las\s+)?\d{1,2}|\bhasta las\b|\bturnos? (libres|disponibles):/i;
 
@@ -48,7 +52,16 @@ TUS LÍMITES (paredes que nunca cruzas):
 3. Cómo elegir el turno: si pidió día y hora y está libre, ese. Si la hora está ocupada, la más cercana ese mismo día. Si no dijo hora, la más temprana del día. Si no dijo día, el más próximo. Si rechaza el DÍA (pico y placa, trabajo, "ese día no puedo"), ofrece otro día y no vuelvas a ofrecer ese día. Si rechaza solo la HORA, otra hora. No repitas un turno que ya rechazó (está en TURNOS RECHAZADOS).
 4. "agendar" solo cuando tengas nombre, vehículo y placa, y el cliente aceptó el turno ofrecido ("sí", "listo", "dale", "me sirve"…) o pidió exactamente un turno que está libre.
 5. Datos: no inventes nada. Placa colombiana: 3 letras + 3 números (carros) o 3 letras + 2 números + 1 letra (motos). Si escribió la letra O en vez de cero, corrígela.
-6. Tono: amable, serio y respetuoso; tutea. Mensajes cortos (máximo 3 frases). Como mucho 1 emoji. Nunca: "Uy", "qué pena", "lamentablemente", "disculpa", "lo siento", ni caritas tristes. No empieces el mensaje con el nombre del cliente cuando no hay disponibilidad. No prometas nada, no des precios de otros servicios, no inventes promociones.
+6. Forma de hablar (muy respetuosa):
+   - Amable, serio y respetuoso, como un asesor profesional. Tutea con cortesía ("¿Te sirve…?", "con gusto").
+   - Usa "por favor", "con gusto" y "gracias" cuando venga al caso, sin exagerar.
+   - Nada de confianzas ni jerga: nunca "amigo", "hermano", "parcero", "parce", "mi rey", "mija", "bro", "veci".
+   - No presiones: nunca "apúrate", "se acaban los cupos", "últimos cupos", "última oportunidad".
+   - No discutas ni corrijas al cliente en tono de regaño. Si está molesto, la acción es "cortar".
+   - Saluda solo una vez en la conversación y no repitas el nombre del cliente en cada mensaje. No empieces el mensaje con su nombre cuando no hay disponibilidad.
+   - Mensajes cortos (máximo 3 frases). Como mucho 1 emoji, solo amables (🙌 👍 📍). Sin mayúsculas sostenidas ni signos repetidos ("!!", "??").
+   - Nunca: "Uy", "qué pena", "lamentablemente", "disculpa", "lo siento", ni caritas tristes.
+   - No prometas nada, no des precios de otros servicios, no inventes promociones.
 7. Cuando la acción es "agendar", deja "mensaje" vacío: el sistema le manda la confirmación con todos los datos.
 
 Responde SOLO con un objeto JSON:
@@ -111,6 +124,9 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {} }) {
     if (!mensaje) return { ok: false, razon: 'mensaje vacío' };
     if (mensaje.length > 420) return { ok: false, razon: 'mensaje muy largo' };
     if (TONO_PROHIBIDO.test(mensaje)) return { ok: false, razon: 'tono prohibido' };
+    if (CONFIANZAS.test(mensaje)) return { ok: false, razon: 'trato de confianza o jerga' };
+    if (PRESION.test(mensaje)) return { ok: false, razon: 'presiona al cliente' };
+    if (/!!|\?\?|¡¡|¿¿/.test(mensaje)) return { ok: false, razon: 'signos repetidos' };
     // Se quitan las frases fijas del taller (dirección, horario, precio, duración) antes de revisar números y rangos.
     const s = config.servicios[servicio] || config.servicios.REVISION;
     let resto = mensaje
@@ -137,9 +153,9 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {} }) {
   return { ok: true, decision: { accion, datos: nuevos, turno, mensaje, motivo: String(decision.motivo || '').slice(0, 120) } };
 }
 
-function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.AGENTE, telefonos = process.env.AGENTE_TELEFONOS } = {}) {
+function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.AGENTE || 'si', telefonos = process.env.AGENTE_TELEFONOS } = {}) {
   const lista = String(telefonos || '').split(/[,\s]+/).map((t) => t.replace(/\D/g, '')).filter(Boolean);
-  // "si" = para todos; "prueba" = solo para los celulares de AGENTE_TELEFONOS; cualquier otra cosa = apagado.
+  // "si" (o sin variable) = para todos; "prueba" = solo los celulares de AGENTE_TELEFONOS; "no" = apagado.
   const paraQuien = (telefono) => {
     if (!ia || !ia.activa || !ia.json) return false;
     if (modo === 'si') return true;

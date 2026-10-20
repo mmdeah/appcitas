@@ -124,3 +124,28 @@ test('modo prueba: el agente solo atiende los celulares de prueba; los demás si
   assert.equal(agente.paraQuien('573001112233'), false);
   assert.equal(crearAgente({ ia, agenda, reloj, modo: '' }).paraQuien(`57${TEL}`), false);
 });
+
+test('respeto: rechaza confianzas, jerga, presión y signos repetidos', () => {
+  const libres = new Set(['2026-10-20 15:30']);
+  const base = { libres, datos: {}, texto: 'el martes a las 3:30', servicio: 'REVISION' };
+  const di = (mensaje) => verificar({ accion: 'ofrecer', turno: { fecha: '2026-10-20', hora: '15:30' }, mensaje, datos: {} }, base);
+  assert.equal(di('Con gusto. ¿Te sirve el martes 20 a las 3:30 p. m.?').ok, true);
+  assert.match(di('Listo hermano, ¿te sirve el martes 20 a las 3:30?').razon, /confianza/);
+  assert.match(di('Parce, ¿te sirve el martes 20 a las 3:30?').razon, /confianza/);
+  assert.match(di('¿Te sirve el martes 20 a las 3:30? Apúrate que se acaban los cupos').razon, /presiona/);
+  assert.match(di('¿Te sirve el martes 20 a las 3:30??').razon, /signos/);
+  // "correcto" no es "córrele".
+  assert.equal(di('Correcto. ¿Te sirve el martes 20 a las 3:30 p. m.?').ok, true);
+});
+
+test('el agente queda encendido para todos si no se configura nada; AGENTE=no lo apaga', () => {
+  const ia = { activa: true, json: async () => null };
+  const antes = process.env.AGENTE;
+  delete process.env.AGENTE;
+  try {
+    assert.equal(crearAgente({ ia, agenda, reloj }).paraQuien('573001112233'), true);
+    assert.equal(crearAgente({ ia, agenda, reloj, modo: 'no' }).paraQuien('573001112233'), false);
+  } finally {
+    if (antes !== undefined) process.env.AGENTE = antes;
+  }
+});

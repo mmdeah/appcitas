@@ -55,9 +55,9 @@ const ia = crearIA();
 const agente = crearAgente({ ia, agenda });
 const libre = crearConversacionLibre(agenda, { ia, memoria: crearMemoria(db), agente });
 console.log(
-  process.env.AGENTE === 'si' ? 'Agente de IA: encendido para todos los clientes.'
+  !process.env.AGENTE || process.env.AGENTE === 'si' ? 'Agente de IA: encendido para todos los clientes (AGENTE=no para apagarlo).'
   : process.env.AGENTE === 'prueba' ? `Agente de IA: solo para los celulares de prueba (${String(process.env.AGENTE_TELEFONOS || '').split(',').filter(Boolean).length}).`
-  : 'Agente de IA: apagado (AGENTE=si o AGENTE=prueba con AGENTE_TELEFONOS); responden las reglas.'
+  : 'Agente de IA: apagado (AGENTE=no); responden las reglas.'
 );
 const api = crearApi(db);
 console.log(api.activa ? 'API de solo lectura activa en /api/citas.' : 'API de solo lectura apagada (variable API_LECTURA_TOKEN).');
