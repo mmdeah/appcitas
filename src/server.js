@@ -19,6 +19,10 @@ const { crearApi } = require('./api');
 const { crearAgente } = require('./agente');
 const { crearConversacionLibre } = require('./libre');
 const vistas = require('./vistas');
+const vistasBot = require('./vistas-bot');
+const { crearAjustes } = require('./ajustes');
+const { crearSimulador } = require('./simulador');
+const { instrucciones: instruccionesIA } = require('./agente');
 
 const CLAVE = process.env.ADMIN_PASSWORD;
 const SECRETO = process.env.SESSION_SECRET;
@@ -34,6 +38,8 @@ const DURACION_SESION = 30 * 24 * 60 * 60; // 30 días, en segundos
 // Se limpian espacios: un espacio de más en Railway dejaba la base fuera del volumen.
 if (process.env.DB_PATH) process.env.DB_PATH = process.env.DB_PATH.trim();
 const db = abrir(process.env.DB_PATH || undefined);
+const ajustes = crearAjustes(db);
+ajustes.cargar();
 {
   // Al arrancar se dice dónde están los datos y cuántos hay, para notar si se perdieron.
   const { n, activas } = db.prepare(`SELECT count(*) AS n, sum(estado <> 'CANCELADA') AS activas FROM citas`).get();
@@ -52,7 +58,24 @@ const conversaciones = crearConversaciones(db);
 const bot = crearBot(agenda);
 const kommo = crearKommo();
 const ia = crearIA();
-const agente = crearAgente({ ia, agenda });
+const guardarDecision = db.prepare('INSERT INTO decisiones (lead, mensaje, accion, turno, motivo, aprobada, razon) VALUES (?, ?, ?, ?, ?, ?, ?)');
+const agente = crearAgente({
+  ia,
+  agenda,
+  alDecidir: ({ s, texto, crudo, decision, aprobada, razon }) => {
+    const d = decision || crudo || {};
+    guardarDecision.run(
+      s.lead || null,
+      String(texto || '').slice(0, 1000),
+      d.accion ? String(d.accion).slice(0, 20) : null,
+      d.turno ? JSON.stringify(d.turno).slice(0, 100) : null,
+      d.motivo ? String(d.motivo).slice(0, 300) : null,
+      aprobada ? 1 : 0,
+      razon ? String(razon).slice(0, 300) : null
+    );
+  },
+});
+const simulador = crearSimulador({ dbReal: db, ia });
 const libre = crearConversacionLibre(agenda, { ia, memoria: crearMemoria(db), agente });
 console.log(
   !process.env.AGENTE || process.env.AGENTE === 'si' ? 'Agente de IA: encendido para todos los clientes (AGENTE=no para apagarlo).'
@@ -248,6 +271,72 @@ async function atender(req, res) {
       semana: agenda.semana(lunesDe(fecha)),
       aviso: url.searchParams.get('aviso'),
     }));
+  }
+
+  // ---------- Sección Bot ----------
+  if (metodo === 'GET' && ruta === '/bot') {
+    const hoy = db.prepare(`SELECT count(*) AS n, sum(aprobada = 0) AS frenadas FROM decisiones WHERE date(creado, '-5 hours') = ?`).get(ahora().fecha);
+    return html(res, 200, vistasBot.botConfig({
+      ajustes: ajustes.actuales(),
+      estado: { iaActiva: ia.activa, modelo: process.env.OPENROUTER_MODEL, recordatorios: recordatorios.activo },
+      instrucciones: instruccionesIA({ hoy: ahora().fecha, hora: ahora().hora, servicio: 'REVISION' }),
+      aviso: url.searchParams.get('aviso'),
+      estadisticas: { hoy: hoy.n || 0, frenadasHoy: hoy.frenadas || 0 },
+    }));
+  }
+  if (metodo === 'POST' && ruta === '/bot/ajustes') {
+    const r = ajustes.guardarFormulario(await leerFormulario(req));
+    if (r.ok) return ir(res, `/bot?aviso=${encodeURIComponent('Cambios guardados. Ya se están usando.')}`);
+    return html(res, 422, vistasBot.botConfig({
+      ajustes: ajustes.actuales(),
+      estado: { iaActiva: ia.activa, modelo: process.env.OPENROUTER_MODEL, recordatorios: recordatorios.activo },
+      instrucciones: instruccionesIA({ hoy: ahora().fecha, hora: ahora().hora, servicio: 'REVISION' }),
+      errores: r.errores,
+      estadisticas: { hoy: 0, frenadasHoy: 0 },
+    }));
+  }
+  if (metodo === 'GET' && ruta === '/bot/simulador') {
+    return html(res, 200, vistasBot.botSimulador({ sesion: simulador.sesion(), ejemplos: simulador.EJEMPLOS, iaActiva: ia.activa }));
+  }
+  if (metodo === 'POST' && ruta === '/bot/simulador') {
+    const { mensaje } = await leerFormulario(req);
+    try {
+      await simulador.enviar(mensaje);
+    } catch (err) {
+      console.error('Simulador:', err);
+    }
+    return ir(res, '/bot/simulador#ultimo');
+  }
+  if (metodo === 'POST' && ruta === '/bot/simulador/reiniciar') {
+    simulador.nuevaSesion();
+    return ir(res, '/bot/simulador');
+  }
+  if (metodo === 'GET' && ruta === '/bot/conversaciones') {
+    const lista = db.prepare(`
+      SELECT m.lead, max(m.creado) AS ultimo, count(*) AS mensajes,
+        (SELECT texto FROM mensajes x WHERE x.lead = m.lead AND x.rol = 'cliente' ORDER BY x.id DESC LIMIT 1) AS texto,
+        (SELECT count(*) FROM decisiones d WHERE d.lead = m.lead AND d.aprobada = 0) AS frenadas,
+        (SELECT count(*) FROM decisiones d WHERE d.lead = m.lead AND d.accion = 'cortar' AND d.aprobada = 1) AS cortes
+      FROM mensajes m GROUP BY m.lead ORDER BY ultimo DESC LIMIT 100`).all();
+    return html(res, 200, vistasBot.botConversaciones({ lista }));
+  }
+  const deConversacion = ruta.match(/^\/bot\/conversaciones\/([\w-]{1,40})$/);
+  if (metodo === 'GET' && deConversacion) {
+    const lead = deConversacion[1];
+    // Mensajes y decisiones en el orden en que pasaron (la decisión va justo antes de la respuesta del bot).
+    const mensajes = db.prepare('SELECT id, rol, texto, creado FROM mensajes WHERE lead = ? ORDER BY id DESC LIMIT 200').all(lead).reverse();
+    const decisiones = db.prepare('SELECT * FROM decisiones WHERE lead = ? ORDER BY id DESC LIMIT 200').all(lead).reverse();
+    const eventos = [];
+    let i = 0;
+    for (const m of mensajes) {
+      eventos.push({ tipo: 'mensaje', ...m });
+      if (m.rol === 'cliente') {
+        // La decisión de ese mensaje del cliente (si la hubo).
+        while (i < decisiones.length && decisiones[i].mensaje !== m.texto && decisiones[i].creado < m.creado) i++;
+        if (i < decisiones.length && decisiones[i].mensaje === m.texto) eventos.push({ tipo: 'decision', ...decisiones[i++] });
+      }
+    }
+    return html(res, 200, vistasBot.botConversacion({ lead, eventos }));
   }
 
   if (metodo === 'GET' && ruta === '/exportar') {

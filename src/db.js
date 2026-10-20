@@ -44,6 +44,26 @@ function abrir(archivo = ARCHIVO) {
     CREATE INDEX IF NOT EXISTS bloqueos_por_fecha ON bloqueos (fecha);
 
     -- En qué paso va cada cliente que está agendando por el bot de Kommo.
+    -- Ajustes que se cambian desde la app (horario, cupos, precio…); mandan sobre config.js.
+    CREATE TABLE IF NOT EXISTS ajustes (
+      clave TEXT PRIMARY KEY,
+      valor TEXT NOT NULL
+    );
+
+    -- Lo que decidió el agente de IA en cada mensaje (para ver en la app qué pensó y por qué).
+    CREATE TABLE IF NOT EXISTS decisiones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lead TEXT,
+      mensaje TEXT,
+      accion TEXT,
+      turno TEXT,
+      motivo TEXT,
+      aprobada INTEGER NOT NULL,
+      razon TEXT,
+      creado TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS decisiones_por_lead ON decisiones (lead, id);
+
     CREATE TABLE IF NOT EXISTS mensajes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       lead TEXT NOT NULL,                      -- ID del lead en Kommo

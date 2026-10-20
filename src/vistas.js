@@ -42,6 +42,7 @@ const ICONO = {
   salir: '<path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 8l-4 4 4 4M6 12h10"/>',
   atras: '<path d="M15 6l-6 6 6 6"/>',
   adelante: '<path d="M9 6l6 6-6 6"/>',
+  bot: '<path d="M12 3v3M8 8h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3zM9.5 13h.01M14.5 13h.01M10 16.5h4"/>',
 };
 const icono = (n) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONO[n]}</svg>`;
 
@@ -65,6 +66,7 @@ ${
   <nav class="nav" aria-label="Menú">
     ${item('/calendario', 'Calendario', 'calendario', 'calendario')}
     ${item('/citas/nueva', 'Nueva cita', 'mas', 'nueva')}
+    ${item('/bot', 'Bot', 'bot', 'bot')}
     ${item('/exportar', 'Copia', 'bajar', 'copia')}
     <form method="post" action="/salir" class="nav-salir"><button class="nav-item" type="submit" title="Salir">${icono('salir')}<span>Salir</span></button></form>
   </nav>
@@ -347,6 +349,9 @@ const mensaje = (titulo, texto) =>
   pagina(titulo, `<section class="cabeza"><div><h1>${esc(titulo)}</h1><p class="sub">${esc(texto)}</p><p><a href="/calendario">Ir al calendario</a></p></div></section>`);
 
 module.exports = {
+  pagina,
+  esc,
+  icono,
   login,
   calendario,
   citaNueva,

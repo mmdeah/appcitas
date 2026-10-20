@@ -153,14 +153,27 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {} }) {
   return { ok: true, decision: { accion, datos: nuevos, turno, mensaje, motivo: String(decision.motivo || '').slice(0, 120) } };
 }
 
-function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.AGENTE || 'si', telefonos = process.env.AGENTE_TELEFONOS } = {}) {
+// alDecidir(info): se llama con cada decisión (aprobada o frenada), para guardarla y mostrarla en la app.
+// fijo: true en el simulador (siempre encendido, sin importar el ajuste de la app).
+function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.AGENTE || 'si', telefonos = process.env.AGENTE_TELEFONOS, alDecidir = null, fijo = false } = {}) {
   const lista = String(telefonos || '').split(/[,\s]+/).map((t) => t.replace(/\D/g, '')).filter(Boolean);
   // "si" (o sin variable) = para todos; "prueba" = solo los celulares de AGENTE_TELEFONOS; "no" = apagado.
   const paraQuien = (telefono) => {
     if (!ia || !ia.activa || !ia.json) return false;
-    if (modo === 'si') return true;
+    // El ajuste de la app (Bot → Configuración) manda sobre la variable de Railway.
+    const actual = fijo ? 'si' : config.agenteModo || modo;
+    if (actual === 'si') return true;
     const t = String(telefono || '').replace(/\D/g, '');
-    return modo === 'prueba' && lista.some((x) => t.endsWith(x.slice(-10)));
+    return actual === 'prueba' && lista.some((x) => t.endsWith(x.slice(-10)));
+  };
+
+  const avisar = (info) => {
+    if (!alDecidir) return;
+    try {
+      alDecidir(info);
+    } catch (err) {
+      console.warn('Agente: no pude guardar la decisión', err.message);
+    }
   };
 
   // Le pide la decisión a la IA y la verifica. Devuelve la decisión válida o null (entonces responden las reglas).
@@ -184,14 +197,17 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
       crudo = await ia.json({ sistema: instrucciones({ hoy: momento.fecha, hora: momento.hora, servicio: s.servicio }), usuario });
     } catch (err) {
       console.warn('Agente: la IA no respondió, sigo con reglas:', err.message);
+      avisar({ s, texto, aprobada: false, razon: `la IA no respondió (${String(err.message).slice(0, 80)})` });
       return null;
     }
     const v = verificar(crudo, { libres, datos: s.datos, texto, servicio: s.servicio, pedido });
     if (!v.ok) {
       console.warn('Agente: decisión rechazada, sigo con reglas', { lead: s.lead, razon: v.razon, accion: crudo && crudo.accion });
+      avisar({ s, texto, crudo, aprobada: false, razon: v.razon });
       return null;
     }
     console.log('Agente: decidió', { lead: s.lead, accion: v.decision.accion, turno: v.decision.turno, motivo: v.decision.motivo });
+    avisar({ s, texto, crudo, decision: v.decision, aprobada: true });
     return v.decision;
   }
 
