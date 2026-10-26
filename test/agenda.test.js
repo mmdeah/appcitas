@@ -182,3 +182,32 @@ test('máximo 4 citas al día en cualquier turno (sin dividir mañana y tarde)',
   dia.cancelar(una.id);
   assert.ok(dia.horasLibres('2026-10-08').some((h) => h.hora === '14:00'));
 });
+
+test('reprogramar: mueve la misma cita respetando cupos, horario y bloqueos; forzar se los salta', () => {
+  const ag = crearAgenda(abrir(':memory:'), { ...cfg, intervaloMinutos: 30, citasPorDia: 4 }, reloj);
+  const nueva = (fecha, hora, n) => ag.reservar({ servicio: 'REVISION', fecha, hora, cliente: `C${n}`, telefono: `30000000${10 + n}` });
+  const cita = nueva('2026-10-08', '09:00', 1);
+  ag.marcarRecordada(cita.id);
+
+  // Se mueve la misma cita (mismo número) y el recordatorio queda pendiente otra vez.
+  const { antes, cita: movida } = ag.reprogramar(cita.id, { fecha: '2026-10-09', hora: '10:30' });
+  assert.equal(movida.id, cita.id);
+  assert.deepEqual([antes.fecha, antes.hora, movida.fecha, movida.hora], ['2026-10-08', '09:00', '2026-10-09', '10:30']);
+  assert.equal(movida.recordada, null);
+  assert.equal(ag.dia('2026-10-08').totalCitas, 0);
+
+  // Hora llena (2 por hora), fuera de horario, día cerrado y misma hora: no se puede.
+  nueva('2026-10-10', '09:00', 2);
+  nueva('2026-10-10', '09:30', 3);
+  assert.throws(() => ag.reprogramar(cita.id, { fecha: '2026-10-10', hora: '09:00' }), /llena/);
+  assert.throws(() => ag.reprogramar(cita.id, { fecha: '2026-10-09', hora: '18:00' }), /fuera del horario/);
+  assert.throws(() => ag.reprogramar(cita.id, { fecha: '2026-10-11', hora: '09:00' }), /no hay citas/); // domingo
+  assert.throws(() => ag.reprogramar(cita.id, { fecha: '2026-10-09', hora: '10:30' }), /misma fecha/);
+  // Moverla dentro de su misma hora no choca consigo misma.
+  assert.equal(ag.reprogramar(cita.id, { fecha: '2026-10-09', hora: '10:00' }).cita.hora, '10:00');
+  // A mano se puede forzar.
+  assert.equal(ag.reprogramar(cita.id, { fecha: '2026-10-10', hora: '09:00' }, { forzar: true }).cita.puesto, 3);
+  // Una cancelada no se reprograma.
+  ag.cancelar(cita.id);
+  assert.throws(() => ag.reprogramar(cita.id, { fecha: '2026-10-12', hora: '09:00' }), /cancelada/);
+});

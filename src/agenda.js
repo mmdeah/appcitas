@@ -29,11 +29,14 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     canceladasDelDia: db.prepare(`SELECT * FROM citas WHERE fecha = ? AND estado = 'CANCELADA' ORDER BY hora, id`),
     // Cupo por bloque de una hora: 9:00 y 9:30 comparten los mismos puestos.
     puestosOcupados: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND substr(hora, 1, 2) = ? AND estado <> 'CANCELADA'`),
+    // Igual, pero sin contar una cita (la que se está reprogramando).
+    puestosOcupadosSin: db.prepare(`SELECT puesto FROM citas WHERE fecha = ? AND substr(hora, 1, 2) = ? AND estado <> 'CANCELADA' AND id <> ?`),
     cita: db.prepare(`SELECT * FROM citas WHERE id = ?`),
     insertar: db.prepare(`
       INSERT INTO citas (servicio, fecha, hora, puesto, cliente, telefono, vehiculo, placa, notas, origen, kommo_lead)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
     cambiarEstado: db.prepare(`UPDATE citas SET estado = ? WHERE id = ? RETURNING *`),
+    moverCita: db.prepare(`UPDATE citas SET fecha = ?, hora = ?, puesto = ?, recordada = NULL WHERE id = ? RETURNING *`),
     bloqueosDelDia: db.prepare(`SELECT * FROM bloqueos WHERE fecha = ? ORDER BY hora`),
     bloquear: db.prepare(`INSERT INTO bloqueos (fecha, hora, motivo) VALUES (?, ?, ?) RETURNING *`),
     desbloquear: db.prepare(`DELETE FROM bloqueos WHERE id = ? RETURNING *`),
@@ -218,6 +221,45 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     return cita;
   }
 
+  // Reprogramar: mueve la MISMA cita a otra fecha u hora, con las mismas reglas que al agendar (horario,
+  // bloqueos, cupos por hora y por día, pico y placa). "forzar" se salta esas reglas (solo a mano).
+  // El recordatorio queda pendiente otra vez, para que le llegue antes de la nueva fecha.
+  function reprogramar(id, { fecha, hora }, { forzar = false } = {}) {
+    const actual = sql.cita.get(id);
+    if (!actual) throw new ErrorAgenda('NO_EXISTE', 'La cita no existe.');
+    if (actual.estado === 'CANCELADA') throw new ErrorAgenda('DATOS', 'La cita está cancelada: vuelve a agendarla antes de cambiarla.');
+    if (!esFecha(fecha)) throw new ErrorAgenda('DATOS', 'La fecha no es válida.');
+    if (!esHora(hora)) throw new ErrorAgenda('DATOS', 'La hora no es válida.');
+    if (fecha === actual.fecha && hora === actual.hora) throw new ErrorAgenda('DATOS', 'Es la misma fecha y hora que ya tiene.');
+    if (!forzar && tienePicoYPlaca(actual.placa, fecha, cfg.picoYPlaca || null)) {
+      throw new ErrorAgenda('PICO_Y_PLACA', `Ese día el vehículo de placa ${actual.placa} tiene pico y placa.`);
+    }
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // Cupos de esa hora y de ese día, sin contar la propia cita (por si se mueve dentro del mismo día).
+      const ocupados = sql.puestosOcupadosSin.all(fecha, bloque(hora), id).map((r) => r.puesto);
+      if (!forzar) {
+        const d = dia(fecha);
+        const h = d.horas.find((x) => x.hora === hora);
+        if (d.cierre) throw new ErrorAgenda('CERRADO', `Ese día no hay citas (${d.cierre.toLowerCase()}).`);
+        if (!h || !h.enHorario) throw new ErrorAgenda('CERRADO', 'Esa hora está fuera del horario de citas.');
+        if (h.bloqueo) throw new ErrorAgenda('CERRADO', 'Esa hora está bloqueada.');
+        if (ocupados.length >= cfg.capacidadPorHora) throw new ErrorAgenda('LLENO', 'Esa hora ya está llena.');
+        const delDia = sql.citasDelDia.all(fecha).filter((c) => c.id !== id);
+        if (libresEnDia(delDia) <= 0) throw new ErrorAgenda('LLENO', 'Ese día ya tiene todas sus citas.');
+      }
+      let puesto = 1;
+      while (ocupados.includes(puesto)) puesto++;
+      const cita = sql.moverCita.get(fecha, hora, puesto, id);
+      db.exec('COMMIT');
+      return { antes: actual, cita };
+    } catch (err) {
+      db.exec('ROLLBACK');
+      if (/UNIQUE/.test(err.message)) throw new ErrorAgenda('LLENO', 'Esa hora se acaba de ocupar.');
+      throw err;
+    }
+  }
+
   function bloquear({ fecha, hora, motivo }) {
     if (!esFecha(fecha)) throw new ErrorAgenda('DATOS', 'La fecha no es válida.');
     if (hora && !esHora(hora)) throw new ErrorAgenda('DATOS', 'La hora no es válida.');
@@ -232,6 +274,7 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     reservar,
     cambiarEstado,
     cancelar: (id) => cambiarEstado(id, 'CANCELADA'),
+    reprogramar,
     // Pico y placa con la tabla de esta agenda (la de config.js, o la de las pruebas).
     tienePicoYPlaca: (placa, fecha) => tienePicoYPlaca(placa, fecha, cfg.picoYPlaca || null),
     diaDePicoYPlaca: (placa) => diaDePicoYPlaca(placa, cfg.picoYPlaca || null),

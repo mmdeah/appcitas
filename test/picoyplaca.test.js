@@ -62,3 +62,10 @@ test('agente: los días de pico y placa del vehículo no le llegan a la IA en TU
   assert.equal(r.estado, 'asesor');
   assert.equal(agenda.dia('2026-10-26').totalCitas, 0);
 });
+
+test('reprogramar tampoco deja mover una cita al día de pico y placa del vehículo', () => {
+  const agenda = agendaReal();
+  const cita = agenda.reservar({ servicio: 'REVISION', fecha: '2026-10-27', hora: '09:00', cliente: 'Mario', telefono: '3001234567', placa: 'CQW979' });
+  assert.throws(() => agenda.reprogramar(cita.id, { fecha: '2026-11-02', hora: '09:00' }), /pico y placa/); // lunes
+  assert.equal(agenda.reprogramar(cita.id, { fecha: '2026-10-28', hora: '09:00' }).cita.fecha, '2026-10-28');
+});

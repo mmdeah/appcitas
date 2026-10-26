@@ -6,7 +6,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { abrir } = require('./db');
 const { crearAgenda, ErrorAgenda, ESTADOS } = require('./agenda');
-const { ahora, esFecha, lunesDe, sumarDias } = require('./fechas');
+const { ahora, esFecha, lunesDe, sumarDias, fechaLarga, horaCorta } = require('./fechas');
 const { crearConversaciones } = require('./conversaciones');
 const { crearBot } = require('./bot');
 const { crearKommo, leerCuerpo } = require('./kommo');
@@ -366,12 +366,30 @@ async function atender(req, res) {
     }
   }
 
-  const deCita = ruta.match(/^\/citas\/(\d+)(\/estado)?$/);
+  const deCita = ruta.match(/^\/citas\/(\d+)(\/estado|\/reprogramar)?$/);
   if (deCita) {
     const cita = agenda.cita(Number(deCita[1]));
     if (!cita) return html(res, 404, vistas.noEncontrado());
     if (metodo === 'GET' && !deCita[2]) return html(res, 200, vistas.citaDetalle(cita, { aviso: url.searchParams.get('aviso') }));
-    if (metodo === 'POST' && deCita[2]) {
+    // Reprogramar: mover la misma cita a otra fecha u hora.
+    if (metodo === 'POST' && deCita[2] === '/reprogramar') {
+      const datos = await leerFormulario(req);
+      try {
+        const { antes, cita: movida } = agenda.reprogramar(cita.id, { fecha: datos.fecha, hora: datos.hora }, { forzar: datos.forzar === 'on' });
+        const cuando = `${fechaLarga(movida.fecha)} a las ${horaCorta(movida.hora)}`;
+        // Si la cita vino del bot, queda una nota en el lead de Kommo con el cambio.
+        if (movida.kommo_lead && kommo.activo) {
+          kommo
+            .nota(movida.kommo_lead, `Cita #${movida.id} reprogramada: antes ${fechaLarga(antes.fecha)} a las ${horaCorta(antes.hora)}, ahora ${cuando}`)
+            .catch((err) => console.warn('Kommo: no pude dejar la nota de reprogramación', movida.kommo_lead, err.message));
+        }
+        return ir(res, `/citas/${cita.id}?aviso=${encodeURIComponent(`Cita reprogramada para el ${cuando}`)}`);
+      } catch (err) {
+        if (!(err instanceof ErrorAgenda)) throw err;
+        return html(res, 409, vistas.citaDetalle(cita, { error: err.message, reprogramar: { ...datos, forzar: datos.forzar === 'on' } }));
+      }
+    }
+    if (metodo === 'POST' && deCita[2] === '/estado') {
       const { estado } = await leerFormulario(req);
       try {
         if (!ESTADOS.includes(estado)) throw new ErrorAgenda('DATOS', 'Estado no válido.');

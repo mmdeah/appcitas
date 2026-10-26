@@ -298,7 +298,30 @@ ${error ? `<p class="alerta mal">${esc(error)}</p>` : ''}
   );
 }
 
-function citaDetalle(c, { aviso, error } = {}) {
+// Formulario para mover la cita a otra fecha u hora (solo citas activas).
+function formularioReprogramar(c, valores = {}) {
+  const fecha = valores.fecha || c.fecha;
+  const hora = valores.hora || c.hora;
+  const horas = horasPosibles();
+  if (!horas.includes(hora)) horas.push(hora);
+  return `<div class="tarjeta reprogramar">
+    <h2>Cambiar fecha u hora</h2>
+    <p class="sub">Se mueve la misma cita. Se revisa que el turno nuevo esté libre, en el horario y sin pico y placa para el vehículo.</p>
+    <form method="post" action="/citas/${c.id}/reprogramar" class="formulario">
+      <div class="dos">
+        <div class="campo"><label for="nueva-fecha">Nueva fecha</label><input id="nueva-fecha" name="fecha" type="date" value="${esc(fecha)}" required></div>
+        <div class="campo"><label for="nueva-hora">Nueva hora</label>
+          <select id="nueva-hora" name="hora" required>
+            ${horas.sort().map((h) => `<option value="${h}"${h === hora ? ' selected' : ''}>${horaCorta(h)}</option>`).join('')}
+          </select></div>
+      </div>
+      <label class="check"><input type="checkbox" name="forzar"${valores.forzar ? ' checked' : ''}> Cambiarla aunque la hora esté llena, bloqueada, fuera de horario o con pico y placa</label>
+      <div class="acciones"><span></span><button class="boton" type="submit">Reprogramar cita</button></div>
+    </form>
+  </div>`;
+}
+
+function citaDetalle(c, { aviso, error, reprogramar: valoresReprogramar } = {}) {
   const servicio = config.servicios[c.servicio];
   const fila = (k, v) => (v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : '');
   const botonEstado = (estado, texto) =>
@@ -341,6 +364,7 @@ ${error ? `<p class="alerta mal">${esc(error)}</p>` : ''}
     </details>`
     }
   </div>
+  ${c.estado === 'CANCELADA' ? '' : formularioReprogramar(c, valoresReprogramar)}
 </div>`
   );
 }
