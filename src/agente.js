@@ -55,6 +55,7 @@ TUS LÍMITES (paredes que nunca cruzas):
    - Si al turno ofrecido solo dice "no" (sin decir por qué ni qué prefiere), no adivines otro turno: pregúntale qué día y hora le quedan mejor (acción "preguntar", sin turno).
    - "Más tarde" son varias horas después, no media hora: ofrece un turno al menos 2 a 3 horas después del que ofreciste (o al día siguiente si ese día no hay). "Más temprano", al revés.
    - "En la mañana" (o "temprano") es de ${horaCorta(config.franjas.manana.desde)} a ${horaCorta(config.franjas.manana.hasta)}; "en la tarde" es de ${horaCorta(config.franjas.tarde.desde)} a ${horaCorta(config.franjas.tarde.hasta)}; ofrece un turno dentro de esa franja; si ese día no hay, el siguiente día con turno en esa franja.
+3b. Pico y placa: un vehículo no puede circular (y no se le agenda) el día de su pico y placa, según el último número de la placa: lunes 0 y 9, martes 1 y 2, miércoles 3 y 4, jueves 5 y 6, viernes 7 y 8 (el sábado no hay). Nunca ofrezcas ni agendes ese día. Si el cliente pide ese día, dile con respeto que ese día su vehículo tiene pico y placa y ofrécele otro día. Si ya ofreciste un turno y al saber la placa resulta que cae en pico y placa, explícalo y ofrece otro.
 4. "agendar" solo cuando tengas nombre, vehículo y placa, y el cliente aceptó el turno ofrecido ("sí", "listo", "dale", "me sirve"…) o pidió exactamente un turno que está libre.
 5. Datos: no inventes nada. NO atendemos motos: si el vehículo es una moto (o la placa es de moto, 3 letras + 2 números + 1 letra), la acción es "cortar". Placa de carro: 3 letras + 3 números. Si escribió la letra O en vez de cero, corrígela.
 6. Forma de hablar (muy respetuosa):
@@ -81,13 +82,13 @@ Responde SOLO con un objeto JSON:
 }
 
 // Turnos libres de los próximos días, compactos para la IA ("2026-10-20 martes: 08:30 09:00 …").
-function turnosLibres(agenda, hoy, dias) {
+function turnosLibres(agenda, hoy, dias, placa = null) {
   const libres = new Set();
   const lineas = [];
   for (let i = 0; i <= dias; i++) {
     const fecha = sumarDias(hoy, i);
     const horas = agenda.horasLibres(fecha).map((h) => h.hora);
-    if (!horas.length) continue;
+    if (!horas.length || (placa && agenda.tienePicoYPlaca && agenda.tienePicoYPlaca(placa, fecha))) continue;
     horas.forEach((h) => libres.add(`${fecha} ${h}`));
     lineas.push(`${fecha} ${DIAS[diaSemana(fecha)]}: ${horas.join(' ')}`);
   }
@@ -176,6 +177,8 @@ function verificar(decision, { libres, datos, texto, servicio, pedido = {}, prop
     if (RANGO.test(resto)) return { ok: false, razon: 'menciona un rango de horas' };
     // Cada número del mensaje tiene que venir del turno ofrecido, de lo que dijo el cliente o de sus datos.
     const permitidos = new Set([...numerosDe(texto), ...numerosDe(todos.vehiculo || ''), ...numerosDe(todos.placa || '')]);
+    // Cada número suelto de la placa (para decir "tu placa termina en 9" por el pico y placa).
+    for (const ch of String(todos.placa || '').replace(/\D/g, '')) permitidos.add(String(Number(ch)));
     // El día y la hora que pidió el cliente (aunque los haya dicho como "el lunes" o "tipo 11").
     for (const f of [pedido.fecha, datos.fecha].filter(Boolean)) [Number(f.slice(8)), Number(f.slice(5, 7))].forEach((n) => permitidos.add(String(n)));
     for (const h of [pedido.hora, datos.hora].filter(Boolean)) {
@@ -218,7 +221,9 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
   // Le pide la decisión a la IA y la verifica. Devuelve la decisión válida o null (entonces responden las reglas).
   async function decidir({ s, texto, historial, citas, pedido = {} }) {
     const momento = ahora(reloj());
-    const { libres, texto: lista } = turnosLibres(agenda, momento.fecha, config.diasAdelante || 14);
+    const placa = s.datos.placa || pedido.placa || null;
+    const { libres, texto: lista } = turnosLibres(agenda, momento.fecha, config.diasAdelante || 14, placa);
+    const diaPyP = placa && agenda.diaDePicoYPlaca ? agenda.diaDePicoYPlaca(placa) : null;
     const conversacion = historial.slice(-30).map((m) => `${m.rol === 'cliente' ? 'Cliente' : 'Taller'}: ${m.texto}`).join('\n');
     const conocidos = { nombre: s.datos.nombre || null, vehiculo: s.datos.vehiculo || null, placa: s.datos.placa || null, telefono: s.datos.telefono || null };
     const ofrecido = s.propuesta ? `${s.propuesta.fecha} ${s.propuesta.hora}` : 'ninguno';
@@ -228,6 +233,7 @@ function crearAgente({ ia, agenda, reloj = () => new Date(), modo = process.env.
       `CITAS QUE YA TIENE: ${citas.length ? citas.join('; ') : 'ninguna'}`,
       `TURNO OFRECIDO (esperando respuesta): ${ofrecido}`,
       `TURNOS RECHAZADOS: ${(s.rechazadas || []).join(', ') || 'ninguno'}`,
+      `PICO Y PLACA DEL VEHÍCULO: ${!placa ? 'aún no se sabe la placa' : diaPyP ? `los ${diaPyP} (placa terminada en ${String(placa).slice(-1)}); esos días ya no están en TURNOS LIBRES` : 'ninguno'}`,
       `TURNOS LIBRES (fecha día: horas):\n${lista}`,
       `MENSAJE NUEVO DEL CLIENTE: "${texto}"`,
     ].join('\n\n');

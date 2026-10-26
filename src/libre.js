@@ -506,11 +506,14 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
       });
     } catch (err) {
       if (!(err instanceof ErrorAgenda)) throw err;
-      if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO'].includes(err.codigo)) {
-        const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: d.hora, excluir: [`${d.fecha} ${d.hora}`, ...(s.rechazadas || [])] });
+      if (['LLENO', 'CERRADO', 'FUERA_DE_PLAZO', 'PICO_Y_PLACA'].includes(err.codigo)) {
+        const turno = turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: d.fecha, hora: d.hora, excluir: [`${d.fecha} ${d.hora}`, ...(s.rechazadas || [])] });
         if (!turno) return asesor('', 'sin_cupos');
         const sig = { ...s, confirmando: false, preguntando: 'propuesta', propuesta: turno, datos: { ...d, fecha: null, hora: null } };
-        return esperar(sig, [`Ese horario se acaba de ocupar. Te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`]);
+        const motivo = err.codigo === 'PICO_Y_PLACA'
+          ? `El ${diaCorto(d.fecha)} tu vehículo tiene pico y placa.`
+          : 'Ese horario se acaba de ocupar.';
+        return esperar(sig, [`${motivo} Te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`]);
       }
       if (err.codigo === 'DATOS' && /tel[eé]fono/i.test(err.message)) {
         return esperar({ ...s, confirmando: false, preguntando: 'telefono', datos: { ...d, telefono: null } }, [PREGUNTA.telefono]);
@@ -522,7 +525,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
   // Un solo turno para ofrecer (nunca la lista completa: el taller no debe verse vacío).
   // Busca desde "desde" (o desde hoy) el primer día con cupo; ese día, la hora pedida si está libre,
   // la más cercana a la pedida (en empate, la más temprana) o, si no pidió hora, la más temprana.
-  function turnoParaOfrecer({ desde = null, hora = null, excluir = [], franja = null } = {}) {
+  function turnoParaOfrecer({ desde = null, hora = null, excluir = [], franja = null, placa = null } = {}) {
     const rango = franja && config.franjas && config.franjas[franja];
     const hoy = ahora(reloj()).fecha;
     const buscar = (inicio) => {
@@ -533,7 +536,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
           .map((h) => h.hora)
           .filter((h) => !excluir.includes(`${fecha} ${h}`))
           .filter((h) => !rango || (h >= rango.desde && h <= rango.hasta));
-        if (!libres.length) continue;
+        if (!libres.length || (agenda.tienePicoYPlaca && agenda.tienePicoYPlaca(placa, fecha))) continue;
         const elegida = hora
           ? [...libres].sort((a, b) => Math.abs(aMinutos(a) - aMinutos(hora)) - Math.abs(aMinutos(b) - aMinutos(hora)) || a.localeCompare(b))[0]
           : libres[0];
@@ -564,19 +567,21 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     const ofrecer = (sig, turno, texto) => esperar({ ...sig, preguntando: 'propuesta', propuesta: turno, confirmando: false, sinAvance: 0 }, [texto]);
 
     // El día pedido no tiene turnos: se dice por qué y se ofrece UN turno (el más próximo).
-    if (d.fecha && !agenda.horasLibres(d.fecha).length) {
+    const conPicoYPlaca = Boolean(d.fecha && agenda.tienePicoYPlaca && agenda.tienePicoYPlaca(d.placa, d.fecha));
+    if (d.fecha && (conPicoYPlaca || !agenda.horasLibres(d.fecha).length)) {
       const pedido = d.fecha;
       const cierre = agenda.dia(pedido).cierre;
       const adelante = diasEntre(momento.fecha, pedido);
       const plazo = config.diasAdelante || 14;
       const porQue =
-        adelante < 0 ? 'ya pasó'
+        conPicoYPlaca ? `tu vehículo tiene pico y placa (placa terminada en ${String(d.placa).slice(-1)})`
+        : adelante < 0 ? 'ya pasó'
         : adelante > plazo ? 'todavía no tiene agenda abierta'
         : cierre === 'Festivo' ? 'es festivo y no atendemos'
         : cierre === 'Sin atención' ? 'no atendemos'
         : 'no tenemos turnos disponibles';
       const elPedido = pedido.slice(0, 7) === momento.fecha.slice(0, 7) ? `el ${diaCorto(pedido)}` : `el ${fechaLarga(pedido)}`;
-      const turno = turnoParaOfrecer({ franja: s.franja, desde: adelante > 0 && adelante <= plazo ? pedido : null, hora: d.hora, excluir });
+      const turno = turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: adelante > 0 && adelante <= plazo ? pedido : null, hora: d.hora, excluir });
       if (!turno) return asesor('', 'sin_cupos');
       d.fecha = null;
       d.hora = null;
@@ -586,7 +591,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
     // La hora pedida no está libre ese día (ocupada o fuera de horario): se ofrece UNA, la más cercana.
     if (d.fecha && d.hora && !agenda.horasLibres(d.fecha).some((h) => h.hora === d.hora)) {
       const pedida = d.hora;
-      const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: pedida, excluir });
+      const turno = turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: d.fecha, hora: pedida, excluir });
       if (!turno) return asesor('', 'sin_cupos');
       const dia = diaCorto(d.fecha);
       d.fecha = null;
@@ -603,7 +608,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
 
       // Solo falta el día y/o la hora: se sugiere UN turno (el más temprano, o el más cercano a la hora que dijo).
       if (faltan.every((c) => c === 'fecha' || c === 'hora')) {
-        const turno = turnoParaOfrecer({ franja: s.franja, desde: d.fecha, hora: d.hora, excluir });
+        const turno = turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: d.fecha, hora: d.hora, excluir });
         if (!turno) return asesor('', 'sin_cupos');
         return ofrecer(sig, turno, [saludo, `¿Te sirve ${textoTurno(turno)}?`].filter(Boolean).join(' '));
       }
@@ -678,7 +683,7 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
       const pedido = extraerConReglas(texto, s, momento);
       // Si el cliente escribió su celular, se guarda (cuando no lo trae el contacto de WhatsApp).
       if (!s.datos.telefono && telefonoValido(texto)) s.datos.telefono = telefonoValido(texto);
-      const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora, franja: pedido.franja } });
+      const dec = await agente.decidir({ s, texto, historial, citas: citasPendientes, pedido: { fecha: pedido.fecha, hora: pedido.hora, franja: pedido.franja, placa: pedido.placa } });
       if (dec) {
         Object.assign(s.datos, dec.datos);
         let r;
@@ -819,10 +824,10 @@ function crearConversacionLibre(agenda, { ia = null, memoria = null, agente = nu
         } else {
           const corrido = tarde ? Math.min(aMinutos(propuesta.hora) + 180, 23 * 60) : temprano ? Math.max(aMinutos(propuesta.hora) - 180, 0) : null;
           const hora = corrido == null ? propuesta.hora : `${String(Math.floor(corrido / 60)).padStart(2, '0')}:${String(corrido % 60).padStart(2, '0')}`;
-          let turno = rechazadas.length < 3 && turnoParaOfrecer({ franja: s.franja, desde: propuesta.fecha, hora, excluir: rechazadas });
+          let turno = rechazadas.length < 3 && turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: propuesta.fecha, hora, excluir: rechazadas });
           // "Más tarde" tiene que ser de verdad más tarde: si ese día no hay 2 horas después, al día siguiente.
           if (turno && tarde && turno.fecha === propuesta.fecha && aMinutos(turno.hora) - aMinutos(propuesta.hora) < 120) {
-            turno = turnoParaOfrecer({ franja: s.franja, desde: sumarDias(propuesta.fecha, 1), hora, excluir: rechazadas });
+            turno = turnoParaOfrecer({ franja: s.franja, placa: s.datos && s.datos.placa, desde: sumarDias(propuesta.fecha, 1), hora, excluir: rechazadas });
           }
           r = turno
             ? esperar({ ...s, rechazadas, propuesta: turno, preguntando: 'propuesta' }, [`Entonces te puedo ofrecer ${conPunto(textoTurno(turno))} ¿Te sirve?`])

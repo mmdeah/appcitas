@@ -4,6 +4,7 @@
 const config = require('../config');
 const { ahora, sumarDias, diaSemana, diasEntre, aMinutos, deMinutos, esFecha, esHora } = require('./fechas');
 const { esFestivo } = require('./festivos');
+const { tienePicoYPlaca, diaDePicoYPlaca } = require('./picoyplaca');
 
 const ESTADOS = ['AGENDADA', 'CONFIRMADA', 'LLEGO', 'NO_ASISTIO', 'CANCELADA'];
 
@@ -169,6 +170,10 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
   // Reserva una cita. "forzar" permite agendar aunque la hora esté llena, bloqueada o fuera de horario.
   function reservar(datos, { origen = 'MANUAL', forzar = false } = {}) {
     const c = validar(datos);
+    // Pico y placa: ese día el vehículo no puede circular (a mano se puede forzar).
+    if (!forzar && tienePicoYPlaca(c.placa, c.fecha, cfg.picoYPlaca || null)) {
+      throw new ErrorAgenda('PICO_Y_PLACA', `Ese día el vehículo de placa ${c.placa} tiene pico y placa.`);
+    }
     db.exec('BEGIN IMMEDIATE');
     try {
       const ocupados = sql.puestosOcupados.all(c.fecha, bloque(c.hora)).map((r) => r.puesto);
@@ -227,6 +232,9 @@ function crearAgenda(db, cfg = config, reloj = () => new Date()) {
     reservar,
     cambiarEstado,
     cancelar: (id) => cambiarEstado(id, 'CANCELADA'),
+    // Pico y placa con la tabla de esta agenda (la de config.js, o la de las pruebas).
+    tienePicoYPlaca: (placa, fecha) => tienePicoYPlaca(placa, fecha, cfg.picoYPlaca || null),
+    diaDePicoYPlaca: (placa) => diaDePicoYPlaca(placa, cfg.picoYPlaca || null),
     // Recordatorios: citas activas de ese día que vinieron de Kommo y aún no se recordaron.
     paraRecordar: (fecha) => sql.paraRecordar.all(fecha),
     marcarRecordada: (id) => sql.marcarRecordada.run(id),
